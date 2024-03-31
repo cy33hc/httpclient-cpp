@@ -1,13 +1,13 @@
 /**
-* @file HTTPClient.cpp
-* @brief implementation of the HTTP client class
-* @author Mohamed Amine Mzoughi <mohamed-amine.mzoughi@laposte.net>
-*/
+ * @file HTTPClient.cpp
+ * @brief implementation of the HTTP client class
+ * @author Mohamed Amine Mzoughi <mohamed-amine.mzoughi@laposte.net>
+ */
 
 #include "HTTPClient.h"
 
 // Static members initialization
-std::string    CHTTPClient::s_strCertificationAuthorityFile;
+std::string CHTTPClient::s_strCertificationAuthorityFile;
 
 #ifdef DEBUG_CURL
 std::string CHTTPClient::s_strCurlTraceLogDirectory;
@@ -19,18 +19,16 @@ std::string CHTTPClient::s_strCurlTraceLogDirectory;
  * @param Logger - a callabck to a logger function void(const std::string&)
  *
  */
-CHTTPClient::CHTTPClient(LogFnCallback Logger) :
-   m_oLog(Logger),
-   m_iCurlTimeout(0),
-   m_bHTTPS(false),
-   m_bNoSignal(false),
-   m_bProgressCallbackSet(false),
-   m_eSettingsFlags(ALL_FLAGS),
-   m_pCurlSession(nullptr),
-   m_pHeaderlist(nullptr),
-   m_curlHandle(CurlHandle::instance())
+CHTTPClient::CHTTPClient(LogFnCallback Logger) : m_oLog(Logger),
+                                                 m_iCurlTimeout(0),
+                                                 m_bHTTPS(false),
+                                                 m_bNoSignal(false),
+                                                 m_bProgressCallbackSet(false),
+                                                 m_eSettingsFlags(ALL_FLAGS),
+                                                 m_pCurlSession(nullptr),
+                                                 m_pHeaderlist(nullptr),
+                                                 m_curlHandle(CurlHandle::instance())
 {
-
 }
 
 /**
@@ -65,8 +63,8 @@ CHTTPClient::~CHTTPClient()
  *    m_pHTTPClient->InitSession();
  * @endcode
  */
-const bool CHTTPClient::InitSession(const bool& bHTTPS /* = false */,
-                                    const SettingsFlag& eSettingsFlags /* = ALL_FLAGS */)
+const bool CHTTPClient::InitSession(const bool &bHTTPS /* = false */,
+                                    const SettingsFlag &eSettingsFlags /* = ALL_FLAGS */)
 {
    if (m_pCurlSession)
    {
@@ -132,7 +130,7 @@ const bool CHTTPClient::CleanupSession()
  * @param [in] fnCallback callback to progress function
  *
  */
-/*inline*/ void CHTTPClient::SetProgressFnCallback(void* pOwner, const ProgressFnCallback& fnCallback)
+/*inline*/ void CHTTPClient::SetProgressFnCallback(void *pOwner, const ProgressFnCallback &fnCallback)
 {
    m_ProgressStruct.pOwner = pOwner;
    m_fnProgressCallback = fnCallback;
@@ -147,7 +145,7 @@ const bool CHTTPClient::CleanupSession()
  * @param [in] strProxy URI of the HTTP Proxy
  *
  */
-/*inline*/ void CHTTPClient::SetProxy(const std::string& strProxy)
+/*inline*/ void CHTTPClient::SetProxy(const std::string &strProxy)
 {
    if (strProxy.empty())
       return;
@@ -170,7 +168,7 @@ const bool CHTTPClient::CleanupSession()
  *
  * @param [in] strURL user URI
  */
-inline void CHTTPClient::UpdateURL(const std::string& strURL)
+inline void CHTTPClient::UpdateURL(const std::string &strURL)
 {
    std::string strTmp = strURL;
 
@@ -189,13 +187,13 @@ inline void CHTTPClient::UpdateURL(const std::string& strURL)
 }
 
 /**
-* @brief performs the chosen HTTP request
-* sets up the common settings (Timeout, proxy,...)
-*
-*
-* @retval true   Successfully performed the request.
-* @retval false  An error occured while CURL was performing the request.
-*/
+ * @brief performs the chosen HTTP request
+ * sets up the common settings (Timeout, proxy,...)
+ *
+ *
+ * @retval true   Successfully performed the request.
+ * @retval false  An error occured while CURL was performing the request.
+ */
 const CURLcode CHTTPClient::Perform()
 {
    if (!m_pCurlSession)
@@ -227,7 +225,7 @@ const CURLcode CHTTPClient::Perform()
    if (!m_strProxy.empty())
    {
       curl_easy_setopt(m_pCurlSession, CURLOPT_PROXY, m_strProxy.c_str());
-      curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPPROXYTUNNEL, 1L);      
+      curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPPROXYTUNNEL, 1L);
    }
 
    if (m_bNoSignal)
@@ -242,12 +240,22 @@ const CURLcode CHTTPClient::Perform()
       curl_easy_setopt(m_pCurlSession, CURLOPT_NOPROGRESS, 0L);
    }
 
+   if (!m_Username.empty())
+   {
+      curl_easy_setopt(m_pCurlSession, CURLOPT_USERNAME, m_Username.c_str());
+   }
+
+   if (!m_Password.empty())
+   {
+      curl_easy_setopt(m_pCurlSession, CURLOPT_PASSWORD, m_Password.c_str());
+   }
+
    if (m_bHTTPS)
    {
-       // SSL (TLS)
-       curl_easy_setopt(m_pCurlSession, CURLOPT_USE_SSL, CURLUSESSL_ALL);
-       curl_easy_setopt(m_pCurlSession, CURLOPT_SSL_VERIFYPEER, (m_eSettingsFlags & VERIFY_PEER) ? 1L : 0L);
-       curl_easy_setopt(m_pCurlSession, CURLOPT_SSL_VERIFYPEER, (m_eSettingsFlags & CURLOPT_SSL_VERIFYHOST) ? 2L : 0L);
+      // SSL (TLS)
+      curl_easy_setopt(m_pCurlSession, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_SSL_VERIFYPEER, (m_eSettingsFlags & VERIFY_PEER) ? 1L : 0L);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_SSL_VERIFYHOST, (m_eSettingsFlags & VERIFY_HOST) ? 2L : 0L);
    }
 
    if (m_bHTTPS && !s_strCertificationAuthorityFile.empty())
@@ -299,9 +307,9 @@ const CURLcode CHTTPClient::Perform()
  *    m_pHTTOClient->GetText("https://www.google.com", strWebPage, lHTTPStatusCode);
  * @endcode
  */
-const bool CHTTPClient::GetText(const std::string& strURL,
-                                std::string& strOutput,
-                                long& lHTTPStatusCode)
+const bool CHTTPClient::GetText(const std::string &strURL,
+                                std::string &strOutput,
+                                long &lHTTPStatusCode)
 {
    if (strURL.empty())
    {
@@ -353,9 +361,9 @@ const bool CHTTPClient::GetText(const std::string& strURL,
  * @retval true   Successfully downloaded the file.
  * @retval false  The file couldn't be downloaded. Check the log messages for more information.
  */
-const bool CHTTPClient::DownloadFile(const std::string& strLocalFile,
-                                     const std::string& strURL,
-                                     long& lHTTPStatusCode)
+const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
+                                     const std::string &strURL,
+                                     long &lHTTPStatusCode)
 {
    if (strURL.empty() || strLocalFile.empty())
       return false;
@@ -374,11 +382,7 @@ const bool CHTTPClient::DownloadFile(const std::string& strLocalFile,
 
    std::ofstream ofsOutput;
    ofsOutput.open(
-#ifdef LINUX
        strLocalFile, // UTF-8
-#else
-       Utf8ToUtf16(strLocalFile),
-#endif
        std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
 
    if (ofsOutput)
@@ -392,9 +396,9 @@ const bool CHTTPClient::DownloadFile(const std::string& strLocalFile,
       ofsOutput.close();
       curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
 
-      //double dUploadLength = 0;
-      //curl_easy_getinfo(m_pCurlSession, CURLINFO_CONTENT_LENGTH_UPLOAD, &dUploadLength); // number of bytes uploaded
-      
+      // double dUploadLength = 0;
+      // curl_easy_getinfo(m_pCurlSession, CURLINFO_CONTENT_LENGTH_UPLOAD, &dUploadLength); // number of bytes uploaded
+
       /* Delete downloaded file if status code != 200 as server's response body may
       contain error 404 */
       if (lHTTPStatusCode != 200)
@@ -404,7 +408,70 @@ const bool CHTTPClient::DownloadFile(const std::string& strLocalFile,
       {
          if (m_eSettingsFlags & ENABLE_LOG)
             m_oLog(StringFormat(LOG_ERROR_CURL_DOWNLOAD_FAILURE_FORMAT, strLocalFile.c_str(),
-               strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
+                                strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
+
+         return false;
+      }
+   }
+   else if (m_eSettingsFlags & ENABLE_LOG)
+   {
+      m_oLog(StringFormat(LOG_ERROR_DOWNLOAD_FILE_FORMAT, strLocalFile.c_str()));
+
+      return false;
+   }
+
+   return true;
+}
+
+const bool CHTTPClient::UploadFile(const std::string &strLocalFile,
+                                     const std::string &strURL,
+                                     long &lHTTPStatusCode)
+{
+   if (strURL.empty() || strLocalFile.empty())
+      return false;
+
+   if (!m_pCurlSession)
+   {
+      if (m_eSettingsFlags & ENABLE_LOG)
+         m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
+
+      return false;
+   }
+   // Reset is mandatory to avoid bad surprises
+   curl_easy_reset(m_pCurlSession);
+
+   UpdateURL(strURL);
+
+   std::ifstream ifsInput(strLocalFile, std::ios::binary | std::ios::ate);
+   auto size = ifsInput.tellg();
+
+   ifsInput.seekg(0);
+
+   if (ifsInput)
+   {
+      curl_easy_setopt(m_pCurlSession, CURLOPT_UPLOAD, 1L);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_READFUNCTION, ReadFromFileCallback);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_READDATA, &ifsInput);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_INFILESIZE_LARGE, size);
+
+      CURLcode res = Perform();
+
+      ifsInput.close();
+      curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
+
+      // double dUploadLength = 0;
+      // curl_easy_getinfo(m_pCurlSession, CURLINFO_CONTENT_LENGTH_UPLOAD, &dUploadLength); // number of bytes uploaded
+
+      /* Delete downloaded file if status code != 200 as server's response body may
+      contain error 404 */
+      if (lHTTPStatusCode != 200)
+         remove(strLocalFile.c_str());
+
+      if (res != CURLE_OK)
+      {
+         if (m_eSettingsFlags & ENABLE_LOG)
+            m_oLog(StringFormat(LOG_ERROR_CURL_DOWNLOAD_FAILURE_FORMAT, strLocalFile.c_str(),
+                                strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
 
          return false;
       }
@@ -430,43 +497,44 @@ const bool CHTTPClient::DownloadFile(const std::string& strLocalFile,
  * @retval false  The content couldn't be downloaded. Check the log messages for
  * more information.
  */
-const bool CHTTPClient::DownloadFile(std::vector<unsigned char>& data, const std::string& strURL, long& lHTTPStatusCode) {
-	if (strURL.empty())
-		return false;
+const bool CHTTPClient::DownloadFile(std::vector<unsigned char> &data, const std::string &strURL, long &lHTTPStatusCode)
+{
+   if (strURL.empty())
+      return false;
 
-	if (!m_pCurlSession)
-	{
-		if (m_eSettingsFlags & ENABLE_LOG)
-			m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
+   if (!m_pCurlSession)
+   {
+      if (m_eSettingsFlags & ENABLE_LOG)
+         m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
-		return false;
-	}
+      return false;
+   }
 
-	data.clear();
+   data.clear();
 
-	// Reset is mandatory to avoid bad surprises
-	curl_easy_reset(m_pCurlSession);
+   // Reset is mandatory to avoid bad surprises
+   curl_easy_reset(m_pCurlSession);
 
-	UpdateURL(strURL);
+   UpdateURL(strURL);
 
-	curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPGET, 1L);
-	curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEFUNCTION, WriteToMemoryCallback);
-	curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEDATA, &data);
+   curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPGET, 1L);
+   curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEFUNCTION, WriteToMemoryCallback);
+   curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEDATA, &data);
 
-	CURLcode res = Perform();
+   CURLcode res = Perform();
 
-	curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
+   curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
 
-	if (res != CURLE_OK)
-	{
-		if (m_eSettingsFlags & ENABLE_LOG)
-			m_oLog(StringFormat(LOG_ERROR_CURL_DOWNLOAD_FAILURE_FORMAT, "Download to a byte buffer",
-				strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
+   if (res != CURLE_OK)
+   {
+      if (m_eSettingsFlags & ENABLE_LOG)
+         m_oLog(StringFormat(LOG_ERROR_CURL_DOWNLOAD_FAILURE_FORMAT, "Download to a byte buffer",
+                             strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
 
-		return false;
-	}
+      return false;
+   }
 
-	return true;
+   return true;
 }
 
 /**
@@ -480,9 +548,9 @@ const bool CHTTPClient::DownloadFile(std::vector<unsigned char>& data, const std
  * @retval true   Successfully posted the header.
  * @retval false  The header couldn't be posted.
  */
-const bool CHTTPClient::UploadForm(const std::string& strURL,
-                                   const PostFormInfo& data,
-                                   long& lHTTPStatusCode)
+const bool CHTTPClient::UploadForm(const std::string &strURL,
+                                   const PostFormInfo &data,
+                                   long &lHTTPStatusCode)
 {
    if (strURL.empty())
    {
@@ -508,7 +576,7 @@ const bool CHTTPClient::UploadForm(const std::string& strURL,
 
    /* stating that Expect: 100-continue is not wanted */
    AddHeader("Expect:");
-   
+
    /** set post form */
    if (data.m_pFormPost != nullptr)
       curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPPOST, data.m_pFormPost);
@@ -526,7 +594,7 @@ const bool CHTTPClient::UploadForm(const std::string& strURL,
    {
       if (m_eSettingsFlags & ENABLE_LOG)
          m_oLog(StringFormat(LOG_ERROR_CURL_REQ_FAILURE_FORMAT, m_strURL.c_str(), res,
-            curl_easy_strerror(res), lHTTPStatusCode));
+                             curl_easy_strerror(res), lHTTPStatusCode));
 
       return false;
    }
@@ -537,8 +605,7 @@ const bool CHTTPClient::UploadForm(const std::string& strURL,
 /**
  * @brief PostFormInfo constructor
  */
-CHTTPClient::PostFormInfo::PostFormInfo() :
-   m_pFormPost(nullptr), m_pLastFormptr(nullptr)
+CHTTPClient::PostFormInfo::PostFormInfo() : m_pFormPost(nullptr), m_pLastFormptr(nullptr)
 {
 }
 
@@ -562,13 +629,13 @@ CHTTPClient::PostFormInfo::~PostFormInfo()
  * @param fieldName name of the "file" input encoded in UTF8.
  * @param fieldValue path to the file to upload encoded in UTF8.
  */
-void CHTTPClient::PostFormInfo::AddFormFile(const std::string& strFieldName,
-                                            const std::string& strFieldValue)
+void CHTTPClient::PostFormInfo::AddFormFile(const std::string &strFieldName,
+                                            const std::string &strFieldValue)
 {
    curl_formadd(&m_pFormPost, &m_pLastFormptr,
-      CURLFORM_COPYNAME, strFieldName.c_str(),
-      CURLFORM_FILE, strFieldValue.c_str(),
-      CURLFORM_END);
+                CURLFORM_COPYNAME, strFieldName.c_str(),
+                CURLFORM_FILE, strFieldValue.c_str(),
+                CURLFORM_END);
 }
 
 /**
@@ -578,29 +645,29 @@ void CHTTPClient::PostFormInfo::AddFormFile(const std::string& strFieldName,
  * @param fieldName name of the input element encoded in UTF8 for Linux and in ANSI for Windows (so the file gets located and uploaded).
  * @param fieldValue value to be assigned to the input element encoded in UTF8 for Linux and in ANSI for Windows.
  */
-void CHTTPClient::PostFormInfo::AddFormContent(const std::string& strFieldName,
-                                               const std::string& strFieldValue)
+void CHTTPClient::PostFormInfo::AddFormContent(const std::string &strFieldName,
+                                               const std::string &strFieldValue)
 {
    curl_formadd(&m_pFormPost, &m_pLastFormptr,
-      CURLFORM_COPYNAME, strFieldName.c_str(),
-      CURLFORM_COPYCONTENTS, strFieldValue.c_str(),
-      CURLFORM_END);
+                CURLFORM_COPYNAME, strFieldName.c_str(),
+                CURLFORM_COPYCONTENTS, strFieldValue.c_str(),
+                CURLFORM_END);
 }
 
 // REST REQUESTS
 
 /**
-* @brief initializes a REST request
-* some common operations to REST requests are performed here,
-* the others are performed in Perform method
-*
-* @param [in] strUrl URI encoded in UTF-8 format.
-* @param [in] Headers headers to send
-* @param [out] Response response data
-*/
-inline const bool CHTTPClient::InitRestRequest(const std::string& strUrl,
-                                         const CHTTPClient::HeadersMap& Headers,
-                                         CHTTPClient::HttpResponse& Response)
+ * @brief initializes a REST request
+ * some common operations to REST requests are performed here,
+ * the others are performed in Perform method
+ *
+ * @param [in] strUrl URI encoded in UTF-8 format.
+ * @param [in] Headers headers to send
+ * @param [out] Response response data
+ */
+inline const bool CHTTPClient::InitRestRequest(const std::string &strUrl,
+                                               const CHTTPClient::HeadersMap &Headers,
+                                               CHTTPClient::HttpResponse &Response)
 {
    if (strUrl.empty())
    {
@@ -635,8 +702,8 @@ inline const bool CHTTPClient::InitRestRequest(const std::string& strUrl,
 
    std::string strHeader;
    for (HeadersMap::const_iterator it = Headers.cbegin();
-      it != Headers.cend();
-      ++it)
+        it != Headers.cend();
+        ++it)
    {
       strHeader = it->first + ": " + it->second; // build header string
       AddHeader(strHeader);
@@ -646,23 +713,24 @@ inline const bool CHTTPClient::InitRestRequest(const std::string& strUrl,
 }
 
 /**
-* @brief post REST request operations are performed here
-*
-* @param [in] ePerformCode curl easy perform returned code
-* @param [out] Response response data
-*/
+ * @brief post REST request operations are performed here
+ *
+ * @param [in] ePerformCode curl easy perform returned code
+ * @param [out] Response response data
+ */
 inline const bool CHTTPClient::PostRestRequest(const CURLcode ePerformCode,
-                                               CHTTPClient::HttpResponse& Response)
+                                               CHTTPClient::HttpResponse &Response)
 {
    // Check for errors
    if (ePerformCode != CURLE_OK)
    {
       Response.strBody.clear();
       Response.iCode = -1;
+      Response.errMessage = curl_easy_strerror(ePerformCode);
 
       if (m_eSettingsFlags & ENABLE_LOG)
          m_oLog(StringFormat(LOG_ERROR_CURL_REST_FAILURE_FORMAT, m_strURL.c_str(), ePerformCode,
-            curl_easy_strerror(ePerformCode)));
+                             Response.errMessage.c_str()));
 
       return false;
    }
@@ -674,18 +742,18 @@ inline const bool CHTTPClient::PostRestRequest(const CURLcode ePerformCode,
 }
 
 /**
-* @brief performs a HEAD request
-*
-* @param [in] strUrl url to request encoded in UTF-8 format.
-* @param [in] Headers headers to send
-* @param [out] Response response data
-*
-* @retval true   Successfully requested the URI.
-* @retval false  Encountered a problem.
-*/
-const bool CHTTPClient::Head(const std::string& strUrl,
-   const CHTTPClient::HeadersMap& Headers,
-   CHTTPClient::HttpResponse& Response)
+ * @brief performs a HEAD request
+ *
+ * @param [in] strUrl url to request encoded in UTF-8 format.
+ * @param [in] Headers headers to send
+ * @param [out] Response response data
+ *
+ * @retval true   Successfully requested the URI.
+ * @retval false  Encountered a problem.
+ */
+const bool CHTTPClient::Head(const std::string &strUrl,
+                             const CHTTPClient::HeadersMap &Headers,
+                             CHTTPClient::HttpResponse &Response)
 {
    if (InitRestRequest(strUrl, Headers, Response))
    {
@@ -702,18 +770,18 @@ const bool CHTTPClient::Head(const std::string& strUrl,
 }
 
 /**
-* @brief performs a GET request
-*
-* @param [in] strUrl url to request encoded in UTF-8 format.
-* @param [in] Headers headers to send
-* @param [out] Response response data
-*
-* @retval true   Successfully requested the URI.
-* @retval false  Encountered a problem.
-*/
-const bool CHTTPClient::Get(const std::string& strUrl,
-   const CHTTPClient::HeadersMap& Headers,
-   CHTTPClient::HttpResponse& Response)
+ * @brief performs a GET request
+ *
+ * @param [in] strUrl url to request encoded in UTF-8 format.
+ * @param [in] Headers headers to send
+ * @param [out] Response response data
+ *
+ * @retval true   Successfully requested the URI.
+ * @retval false  Encountered a problem.
+ */
+const bool CHTTPClient::Get(const std::string &strUrl,
+                            const CHTTPClient::HeadersMap &Headers,
+                            CHTTPClient::HttpResponse &Response)
 {
    if (InitRestRequest(strUrl, Headers, Response))
    {
@@ -728,19 +796,37 @@ const bool CHTTPClient::Get(const std::string& strUrl,
       return false;
 }
 
+const bool CHTTPClient::CustomRequest(const std::string &method,
+                                      const std::string &strUrl,
+                                      const HeadersMap &Headers,
+                                      HttpResponse &Response)
+{
+   if (InitRestRequest(strUrl, Headers, Response))
+   {
+      // specify a GET request
+      curl_easy_setopt(m_pCurlSession, CURLOPT_CUSTOMREQUEST, method.c_str());
+
+      CURLcode res = Perform();
+
+      return PostRestRequest(res, Response);
+   }
+   else
+      return false;
+}
+
 /**
-* @brief performs a DELETE request
-*
-* @param [in] strUrl url to request encoded in UTF-8 format.
-* @param [in] Headers headers to send
-* @param [out] Response response data
-*
-* @retval true   Successfully requested the URI.
-* @retval false  Encountered a problem.
-*/
-const bool CHTTPClient::Del(const std::string& strUrl,
-   const CHTTPClient::HeadersMap& Headers,
-   CHTTPClient::HttpResponse& Response)
+ * @brief performs a DELETE request
+ *
+ * @param [in] strUrl url to request encoded in UTF-8 format.
+ * @param [in] Headers headers to send
+ * @param [out] Response response data
+ *
+ * @retval true   Successfully requested the URI.
+ * @retval false  Encountered a problem.
+ */
+const bool CHTTPClient::Del(const std::string &strUrl,
+                            const CHTTPClient::HeadersMap &Headers,
+                            CHTTPClient::HttpResponse &Response)
 {
    if (InitRestRequest(strUrl, Headers, Response))
    {
@@ -754,10 +840,10 @@ const bool CHTTPClient::Del(const std::string& strUrl,
       return false;
 }
 
-const bool CHTTPClient::Post(const std::string& strUrl,
-   const CHTTPClient::HeadersMap& Headers,
-   const std::string& strPostData,
-   CHTTPClient::HttpResponse& Response)
+const bool CHTTPClient::Post(const std::string &strUrl,
+                             const CHTTPClient::HeadersMap &Headers,
+                             const std::string &strPostData,
+                             CHTTPClient::HttpResponse &Response)
 {
    if (InitRestRequest(strUrl, Headers, Response))
    {
@@ -777,17 +863,17 @@ const bool CHTTPClient::Post(const std::string& strUrl,
 }
 
 /**
-* @brief performs a PUT request with a string
-*
-* @param [in] strUrl url to request encoded in UTF-8 format.
-* @param [in] Headers headers to send
-* @param [out] Response response data
-*
-* @retval true   Successfully requested the URI.
-* @retval false  Encountered a problem.
-*/
-const bool CHTTPClient::Put(const std::string& strUrl, const CHTTPClient::HeadersMap& Headers,
-   const std::string& strPutData, CHTTPClient::HttpResponse& Response)
+ * @brief performs a PUT request with a string
+ *
+ * @param [in] strUrl url to request encoded in UTF-8 format.
+ * @param [in] Headers headers to send
+ * @param [out] Response response data
+ *
+ * @retval true   Successfully requested the URI.
+ * @retval false  Encountered a problem.
+ */
+const bool CHTTPClient::Put(const std::string &strUrl, const CHTTPClient::HeadersMap &Headers,
+                            const std::string &strPutData, CHTTPClient::HttpResponse &Response)
 {
    if (InitRestRequest(strUrl, Headers, Response))
    {
@@ -817,17 +903,17 @@ const bool CHTTPClient::Put(const std::string& strUrl, const CHTTPClient::Header
 }
 
 /**
-* @brief performs a PUT request with a byte buffer (vector of char)
-*
-* @param [in] strUrl url to request encoded in UTF-8 format.
-* @param [in] Headers headers to send
-* @param [out] Response response data
-*
-* @retval true   Successfully requested the URI.
-* @retval false  Encountered a problem.
-*/
-const bool CHTTPClient::Put(const std::string& strUrl, const CHTTPClient::HeadersMap& Headers,
-   const CHTTPClient::ByteBuffer& Data, CHTTPClient::HttpResponse& Response)
+ * @brief performs a PUT request with a byte buffer (vector of char)
+ *
+ * @param [in] strUrl url to request encoded in UTF-8 format.
+ * @param [in] Headers headers to send
+ * @param [out] Response response data
+ *
+ * @retval true   Successfully requested the URI.
+ * @retval false  Encountered a problem.
+ */
+const bool CHTTPClient::Put(const std::string &strUrl, const CHTTPClient::HeadersMap &Headers,
+                            const CHTTPClient::ByteBuffer &Data, CHTTPClient::HttpResponse &Response)
 {
    if (InitRestRequest(strUrl, Headers, Response))
    {
@@ -866,42 +952,50 @@ const bool CHTTPClient::Put(const std::string& strUrl, const CHTTPClient::Header
  *
  * @retval string formatted string
  */
-std::string CHTTPClient::StringFormat(std::string strFormat, ...) {
-    va_list args;
-    va_start(args, strFormat);
-    size_t len = std::vsnprintf(NULL, 0, strFormat.c_str(), args);
-    va_end(args);
-    std::vector<char> vec(len + 1);
-    va_start(args, strFormat);
-    std::vsnprintf(&vec[0], len + 1, strFormat.c_str(), args);
-    va_end(args);
-    return &vec[0];
+std::string CHTTPClient::StringFormat(std::string strFormat, ...)
+{
+   va_list args;
+   va_start(args, strFormat);
+   size_t len = vsnprintf(NULL, 0, strFormat.c_str(), args);
+   va_end(args);
+   std::vector<char> vec(len + 1);
+   va_start(args, strFormat);
+   vsnprintf(&vec[0], len + 1, strFormat.c_str(), args);
+   va_end(args);
+   return &vec[0];
 }
 
 /**
-* @brief removes leading and trailing whitespace from a string
-*
-* @param [in/out] str string to be trimmed
-*/
-inline void CHTTPClient::TrimSpaces(std::string& str)
+ * @brief removes leading and trailing whitespace from a string
+ *
+ * @param [in/out] str string to be trimmed
+ */
+inline void CHTTPClient::TrimSpaces(std::string &str)
 {
    // trim from left
    str.erase(str.begin(),
-      std::find_if(str.begin(), str.end(), [](char c) {return !isspace(c); })
-   );
+             std::find_if(str.begin(), str.end(), [](char c)
+                          { return !isspace(c); }));
 
    // trim from right
-   str.erase(std::find_if(str.rbegin(), str.rend(), [](char c) {return !isspace(c); }).base(),
-      str.end()
-   );
+   str.erase(std::find_if(str.rbegin(), str.rend(), [](char c)
+                          { return !isspace(c); })
+                 .base(),
+             str.end());
+}
+
+inline void CHTTPClient::ToLower(std::string& str)
+{
+   std::transform(str.begin(), str.end(), str.begin(),
+    [](unsigned char c){ return std::tolower(c); });
 }
 
 // CURL CALLBACKS
 
-size_t CHTTPClient::ThrowAwayCallback(void* ptr, size_t size, size_t nmemb, void* data)
+size_t CHTTPClient::ThrowAwayCallback(void *ptr, size_t size, size_t nmemb, void *data)
 {
-   reinterpret_cast<void*>(ptr);
-   reinterpret_cast<void*>(data);
+   reinterpret_cast<void *>(ptr);
+   reinterpret_cast<void *>(data);
 
    /* we are not interested in the headers itself,
    so we only return the size we would have saved ... */
@@ -909,46 +1003,46 @@ size_t CHTTPClient::ThrowAwayCallback(void* ptr, size_t size, size_t nmemb, void
 }
 
 /**
-* @brief stores the server response in a string
-*
-* @param ptr pointer of max size (size*nmemb) to read data from it
-* @param size size parameter
-* @param nmemb memblock parameter
-* @param data pointer to user data (string)
-*
-* @return (size * nmemb)
-*/
-size_t CHTTPClient::WriteInStringCallback(void* ptr, size_t size, size_t nmemb, void* data)
+ * @brief stores the server response in a string
+ *
+ * @param ptr pointer of max size (size*nmemb) to read data from it
+ * @param size size parameter
+ * @param nmemb memblock parameter
+ * @param data pointer to user data (string)
+ *
+ * @return (size * nmemb)
+ */
+size_t CHTTPClient::WriteInStringCallback(void *ptr, size_t size, size_t nmemb, void *data)
 {
-   std::string* strWriteHere = reinterpret_cast<std::string*>(data);
+   std::string *strWriteHere = reinterpret_cast<std::string *>(data);
    if (strWriteHere != nullptr)
    {
-      strWriteHere->append(reinterpret_cast<char*>(ptr), size * nmemb);
+      strWriteHere->append(reinterpret_cast<char *>(ptr), size * nmemb);
       return size * nmemb;
    }
    return 0;
 }
 
 /**
-* @brief stores the server response in an already opened file stream
-* used by DownloadFile()
-*
-* @param buff pointer of max size (size*nmemb) to read data from it
-* @param size size parameter
-* @param nmemb memblock parameter
-* @param userdata pointer to user data (file stream)
-*
-* @return (size * nmemb)
-*/
-size_t CHTTPClient::WriteToFileCallback(void* buff, size_t size, size_t nmemb, void* data)
+ * @brief stores the server response in an already opened file stream
+ * used by DownloadFile()
+ *
+ * @param buff pointer of max size (size*nmemb) to read data from it
+ * @param size size parameter
+ * @param nmemb memblock parameter
+ * @param userdata pointer to user data (file stream)
+ *
+ * @return (size * nmemb)
+ */
+size_t CHTTPClient::WriteToFileCallback(void *buff, size_t size, size_t nmemb, void *data)
 {
-   if ((size == 0) || (nmemb == 0) || ((size*nmemb) < 1) || (data == nullptr))
+   if ((size == 0) || (nmemb == 0) || ((size * nmemb) < 1) || (data == nullptr))
       return 0;
 
-   std::ofstream* pFileStream = reinterpret_cast<std::ofstream*>(data);
+   std::ofstream *pFileStream = reinterpret_cast<std::ofstream *>(data);
    if (pFileStream->is_open())
    {
-      pFileStream->write(reinterpret_cast<char*>(buff), size * nmemb);
+      pFileStream->write(reinterpret_cast<char *>(buff), size * nmemb);
    }
 
    return size * nmemb;
@@ -964,34 +1058,36 @@ size_t CHTTPClient::WriteToFileCallback(void* buff, size_t size, size_t nmemb, v
  *
  * @return (size * nmemb)
  */
-size_t CHTTPClient::WriteToMemoryCallback(void* buff, size_t size, size_t nmemb, void* data) {
-    if ((size == 0) || (nmemb == 0) || (data == nullptr)) return 0;
+size_t CHTTPClient::WriteToMemoryCallback(void *buff, size_t size, size_t nmemb, void *data)
+{
+   if ((size == 0) || (nmemb == 0) || (data == nullptr))
+      return 0;
 
-    auto* vec = reinterpret_cast<std::vector<unsigned char> *>(data);
-    size_t ssize = size * nmemb;
-    std::copy(reinterpret_cast<unsigned char*>(buff), reinterpret_cast<unsigned char*>(buff) + ssize,
-        std::back_inserter(*vec));
+   auto *vec = reinterpret_cast<std::vector<unsigned char> *>(data);
+   size_t ssize = size * nmemb;
+   std::copy(reinterpret_cast<unsigned char *>(buff), reinterpret_cast<unsigned char *>(buff) + ssize,
+             std::back_inserter(*vec));
 
-    return ssize;
+   return ssize;
 }
 
 /**
-* @brief reads the content of an already opened file stream
-* used by UploadFile()
-*
-* @param ptr pointer of max size (size*nmemb) to write data to it
-* @param size size parameter
-* @param nmemb memblock parameter
-* @param stream pointer to user data (file stream)
-*
-* @return (size * nmemb)
-*/
-size_t CHTTPClient::ReadFromFileCallback(void* ptr, size_t size, size_t nmemb, void* stream)
+ * @brief reads the content of an already opened file stream
+ * used by UploadFile()
+ *
+ * @param ptr pointer of max size (size*nmemb) to write data to it
+ * @param size size parameter
+ * @param nmemb memblock parameter
+ * @param stream pointer to user data (file stream)
+ *
+ * @return (size * nmemb)
+ */
+size_t CHTTPClient::ReadFromFileCallback(void *ptr, size_t size, size_t nmemb, void *stream)
 {
-   std::ifstream* pFileStream = reinterpret_cast<std::ifstream*>(stream);
+   std::ifstream *pFileStream = reinterpret_cast<std::ifstream *>(stream);
    if (pFileStream->is_open())
    {
-      pFileStream->read(reinterpret_cast<char*>(ptr), size * nmemb);
+      pFileStream->read(reinterpret_cast<char *>(ptr), size * nmemb);
       return pFileStream->gcount();
    }
    return 0;
@@ -1000,56 +1096,60 @@ size_t CHTTPClient::ReadFromFileCallback(void* ptr, size_t size, size_t nmemb, v
 // REST CALLBACKS
 
 /**
-* @brief write callback function for libcurl
-* this callback will be called to store the server's Body reponse
-* in a struct response
-*
-* we can also use an std::vector<char> instead of an std::string but in this case
-* there isn't a big difference... maybe resizing the container with a max size can
-* enhance performances...
-*
-* @param data returned data of size (size*nmemb)
-* @param size size parameter
-* @param nmemb memblock parameter
-* @param userdata pointer to user data to save/work with return data
-*
-* @return (size * nmemb)
-*/
-size_t CHTTPClient::RestWriteCallback(void* pCurlData, size_t usBlockCount, size_t usBlockSize, void* pUserData)
+ * @brief write callback function for libcurl
+ * this callback will be called to store the server's Body reponse
+ * in a struct response
+ *
+ * we can also use an std::vector<char> instead of an std::string but in this case
+ * there isn't a big difference... maybe resizing the container with a max size can
+ * enhance performances...
+ *
+ * @param data returned data of size (size*nmemb)
+ * @param size size parameter
+ * @param nmemb memblock parameter
+ * @param userdata pointer to user data to save/work with return data
+ *
+ * @return (size * nmemb)
+ */
+size_t CHTTPClient::RestWriteCallback(void *pCurlData, size_t usBlockCount, size_t usBlockSize, void *pUserData)
 {
-   CHTTPClient::HttpResponse* pServerResponse;
-   pServerResponse = reinterpret_cast<CHTTPClient::HttpResponse*>(pUserData);
-   pServerResponse->strBody.append(reinterpret_cast<char*>(pCurlData), usBlockCount * usBlockSize);
+   CHTTPClient::HttpResponse *pServerResponse;
+   pServerResponse = reinterpret_cast<CHTTPClient::HttpResponse *>(pUserData);
+   const char* begin = reinterpret_cast<char *>(pCurlData);
+   const char* end = begin + (usBlockCount * usBlockSize);
+   pServerResponse->strBody.insert(pServerResponse->strBody.end(), begin, end);
 
    return (usBlockCount * usBlockSize);
 }
 
 /**
-* @brief header callback for libcurl
-* callback used to process response's headers (received)
-*
-* @param data returned (header line)
-* @param size of data
-* @param nmemb memblock
-* @param userdata pointer to user data object to save header data
-* @return size * nmemb;
-*/
-size_t CHTTPClient::RestHeaderCallback(void* pCurlData, size_t usBlockCount, size_t usBlockSize, void* pUserData)
+ * @brief header callback for libcurl
+ * callback used to process response's headers (received)
+ *
+ * @param data returned (header line)
+ * @param size of data
+ * @param nmemb memblock
+ * @param userdata pointer to user data object to save header data
+ * @return size * nmemb;
+ */
+size_t CHTTPClient::RestHeaderCallback(void *pCurlData, size_t usBlockCount, size_t usBlockSize, void *pUserData)
 {
-   CHTTPClient::HttpResponse* pServerResponse;
-   pServerResponse = reinterpret_cast<CHTTPClient::HttpResponse*>(pUserData);
+   CHTTPClient::HttpResponse *pServerResponse;
+   pServerResponse = reinterpret_cast<CHTTPClient::HttpResponse *>(pUserData);
 
-   std::string strHeader(reinterpret_cast<char*>(pCurlData), usBlockCount * usBlockSize);
+   std::string strHeader(reinterpret_cast<char *>(pCurlData), usBlockCount * usBlockSize);
    size_t usSeperator = strHeader.find_first_of(":");
    if (std::string::npos == usSeperator)
    {
-      //roll with non seperated headers or response's line
+      // roll with non seperated headers or response's line
       TrimSpaces(strHeader);
       if (0 == strHeader.length())
       {
-         return (usBlockCount * usBlockSize); //blank line;
+         return (usBlockCount * usBlockSize); // blank line;
       }
       pServerResponse->mapHeaders[strHeader] = "present";
+      ToLower(strHeader);
+      pServerResponse->mapHeadersLowercase[strHeader] = "present";
    }
    else
    {
@@ -1058,28 +1158,246 @@ size_t CHTTPClient::RestHeaderCallback(void* pCurlData, size_t usBlockCount, siz
       std::string strValue = strHeader.substr(usSeperator + 1);
       TrimSpaces(strValue);
       pServerResponse->mapHeaders[strKey] = strValue;
+      ToLower(strKey);
+      pServerResponse->mapHeadersLowercase[strKey] = strValue;
    }
 
    return (usBlockCount * usBlockSize);
 }
 
+std::string CHTTPClient::GetMessage(CURLcode code)
+{
+   return std::string(curl_easy_strerror(code));
+}
+
+std::string CHTTPClient::EncodeUrl(const std::string &s)
+{
+   std::string result;
+   result.reserve(s.size());
+
+   for (size_t i = 0; s[i]; i++)
+   {
+      switch (s[i])
+      {
+      case ' ':
+         result += "%20";
+         break;
+      case '+':
+         result += "%2B";
+         break;
+      case '\r':
+         result += "%0D";
+         break;
+      case '\n':
+         result += "%0A";
+         break;
+      case '\'':
+         result += "%27";
+         break;
+      case ',':
+         result += "%2C";
+         break;
+      // case ':': result += "%3A"; break; // ok? probably...
+      case ';':
+         result += "%3B";
+         break;
+      default:
+         auto c = static_cast<uint8_t>(s[i]);
+         if (c >= 0x80)
+         {
+            result += '%';
+            char hex[4];
+            auto len = snprintf(hex, sizeof(hex) - 1, "%02X", c);
+            assert(len == 2);
+            result.append(hex, static_cast<size_t>(len));
+         }
+         else
+         {
+            result += s[i];
+         }
+         break;
+      }
+   }
+
+   return result;
+}
+
+std::string from_i_to_hex(size_t n)
+{
+   static const auto charset = "0123456789abcdef";
+   std::string ret;
+   do
+   {
+      ret = charset[n & 15] + ret;
+      n >>= 4;
+   } while (n > 0);
+   return ret;
+}
+
+size_t to_utf8(int code, char *buff)
+{
+   if (code < 0x0080)
+   {
+      buff[0] = (code & 0x7F);
+      return 1;
+   }
+   else if (code < 0x0800)
+   {
+      buff[0] = static_cast<char>(0xC0 | ((code >> 6) & 0x1F));
+      buff[1] = static_cast<char>(0x80 | (code & 0x3F));
+      return 2;
+   }
+   else if (code < 0xD800)
+   {
+      buff[0] = static_cast<char>(0xE0 | ((code >> 12) & 0xF));
+      buff[1] = static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+      buff[2] = static_cast<char>(0x80 | (code & 0x3F));
+      return 3;
+   }
+   else if (code < 0xE000)
+   { // D800 - DFFF is invalid...
+      return 0;
+   }
+   else if (code < 0x10000)
+   {
+      buff[0] = static_cast<char>(0xE0 | ((code >> 12) & 0xF));
+      buff[1] = static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+      buff[2] = static_cast<char>(0x80 | (code & 0x3F));
+      return 3;
+   }
+   else if (code < 0x110000)
+   {
+      buff[0] = static_cast<char>(0xF0 | ((code >> 18) & 0x7));
+      buff[1] = static_cast<char>(0x80 | ((code >> 12) & 0x3F));
+      buff[2] = static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+      buff[3] = static_cast<char>(0x80 | (code & 0x3F));
+      return 4;
+   }
+
+   // NOTREACHED
+   return 0;
+}
+
+bool is_hex(char c, int &v)
+{
+   if (0x20 <= c && isdigit(c))
+   {
+      v = c - '0';
+      return true;
+   }
+   else if ('A' <= c && c <= 'F')
+   {
+      v = c - 'A' + 10;
+      return true;
+   }
+   else if ('a' <= c && c <= 'f')
+   {
+      v = c - 'a' + 10;
+      return true;
+   }
+   return false;
+}
+
+bool from_hex_to_i(const std::string &s, size_t i, size_t cnt,
+                   int &val)
+{
+   if (i >= s.size())
+   {
+      return false;
+   }
+
+   val = 0;
+   for (; cnt; i++, cnt--)
+   {
+      if (!s[i])
+      {
+         return false;
+      }
+      auto v = 0;
+      if (is_hex(s[i], v))
+      {
+         val = val * 16 + v;
+      }
+      else
+      {
+         return false;
+      }
+   }
+   return true;
+}
+
+std::string CHTTPClient::DecodeUrl(const std::string &s, bool convert_plus_to_space)
+{
+   std::string result;
+
+   for (size_t i = 0; i < s.size(); i++)
+   {
+      if (s[i] == '%' && i + 1 < s.size())
+      {
+         if (s[i + 1] == 'u')
+         {
+            auto val = 0;
+            if (from_hex_to_i(s, i + 2, 4, val))
+            {
+               // 4 digits Unicode codes
+               char buff[4];
+               size_t len = to_utf8(val, buff);
+               if (len > 0)
+               {
+                  result.append(buff, len);
+               }
+               i += 5; // 'u0000'
+            }
+            else
+            {
+               result += s[i];
+            }
+         }
+         else
+         {
+            auto val = 0;
+            if (from_hex_to_i(s, i + 1, 2, val))
+            {
+               // 2 digits hex codes
+               result += static_cast<char>(val);
+               i += 2; // '00'
+            }
+            else
+            {
+               result += s[i];
+            }
+         }
+      }
+      else if (convert_plus_to_space && s[i] == '+')
+      {
+         result += ' ';
+      }
+      else
+      {
+         result += s[i];
+      }
+   }
+
+   return result;
+}
+
 /**
-* @brief read callback function for libcurl
-* used to send (or upload) a content to the server
-*
-* @param pointer of max size (size*nmemb) to write data to (used by cURL to send data)
-* @param size size parameter
-* @param nmemb memblock parameter
-* @param userdata pointer to user data to read data from
-*
-* @return (size * nmemb)
-*/
-size_t CHTTPClient::RestReadCallback(void* pCurlData, size_t usBlockCount, size_t usBlockSize, void* pUserData)
+ * @brief read callback function for libcurl
+ * used to send (or upload) a content to the server
+ *
+ * @param pointer of max size (size*nmemb) to write data to (used by cURL to send data)
+ * @param size size parameter
+ * @param nmemb memblock parameter
+ * @param userdata pointer to user data to read data from
+ *
+ * @return (size * nmemb)
+ */
+size_t CHTTPClient::RestReadCallback(void *pCurlData, size_t usBlockCount, size_t usBlockSize, void *pUserData)
 {
    // get upload struct
-   CHTTPClient::UploadObject* Payload;
+   CHTTPClient::UploadObject *Payload;
 
-   Payload = reinterpret_cast<CHTTPClient::UploadObject*>(pUserData);
+   Payload = reinterpret_cast<CHTTPClient::UploadObject *>(pUserData);
 
    // set correct sizes
    size_t usCurlSize = usBlockCount * usBlockSize;
@@ -1092,32 +1410,32 @@ size_t CHTTPClient::RestReadCallback(void* pCurlData, size_t usBlockCount, size_
    Payload->usLength -= usCopySize; // remaining bytes to be sent
    Payload->pszData += usCopySize;  // next byte to the chunk that will be sent
 
-                                    /** return copied size */
+   /** return copied size */
    return usCopySize;
 }
 
 // CURL DEBUG INFO CALLBACKS
 
 #ifdef DEBUG_CURL
-void CHTTPClient::SetCurlTraceLogDirectory(const std::string& strPath)
+void CHTTPClient::SetCurlTraceLogDirectory(const std::string &strPath)
 {
    s_strCurlTraceLogDirectory = strPath;
 
    if (!s_strCurlTraceLogDirectory.empty()
 #ifdef WINDOWS
-      && s_strCurlTraceLogDirectory.at(s_strCurlTraceLogDirectory.length() - 1) != '\\')
+       && s_strCurlTraceLogDirectory.at(s_strCurlTraceLogDirectory.length() - 1) != '\\')
    {
       s_strCurlTraceLogDirectory += '\\';
    }
 #else
-      && s_strCurlTraceLogDirectory.at(s_strCurlTraceLogDirectory.length() - 1) != '/')
+       && s_strCurlTraceLogDirectory.at(s_strCurlTraceLogDirectory.length() - 1) != '/')
    {
       s_strCurlTraceLogDirectory += '/';
    }
 #endif
 }
 
-int CHTTPClient::DebugCallback(CURL* curl, curl_infotype curl_info_type, char* pszTrace, size_t usSize, void* pFile)
+int CHTTPClient::DebugCallback(CURL *curl, curl_infotype curl_info_type, char *pszTrace, size_t usSize, void *pFile)
 {
    std::string strText;
    std::string strTrace(pszTrace, usSize);
@@ -1149,10 +1467,11 @@ int CHTTPClient::DebugCallback(CURL* curl, curl_infotype curl_info_type, char* p
       break;
    }
 
-   std::ofstream* pofTraceFile = reinterpret_cast<std::ofstream*>(pFile);
+   std::ofstream *pofTraceFile = reinterpret_cast<std::ofstream *>(pFile);
    if (pofTraceFile == nullptr)
    {
-      std::cout << "[DEBUG] cURL debug log [" << curl_info_type << "]: " << " - " << strTrace;
+      std::cout << "[DEBUG] cURL debug log [" << curl_info_type << "]: "
+                << " - " << strTrace;
    }
    else
    {
@@ -1174,7 +1493,8 @@ void CHTTPClient::StartCurlDebug() const
       {
          char szDate[32];
          memset(szDate, 0, 32);
-         time_t tNow; time(&tNow);
+         time_t tNow;
+         time(&tNow);
          // new trace file for each hour
          strftime(szDate, 32, "%Y%m%d_%H", localtime(&tNow));
          strFileCurlTraceFullName += "TraceLog_";
@@ -1200,27 +1520,30 @@ void CHTTPClient::EndCurlDebug() const
 #endif
 
 #ifdef WINDOWS
-std::string CHTTPClient::AnsiToUtf8(const std::string& codepage_str) {
-    // Transcode Windows ANSI to UTF-16
-    int size = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, codepage_str.c_str(), codepage_str.length(), nullptr, 0);
-    std::wstring utf16_str(size, '\0');
-    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, codepage_str.c_str(), codepage_str.length(), &utf16_str[0], size);
+std::string CHTTPClient::AnsiToUtf8(const std::string &codepage_str)
+{
+   // Transcode Windows ANSI to UTF-16
+   int size = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, codepage_str.c_str(), codepage_str.length(), nullptr, 0);
+   std::wstring utf16_str(size, '\0');
+   MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, codepage_str.c_str(), codepage_str.length(), &utf16_str[0], size);
 
-    // Transcode UTF-16 to UTF-8
-    int utf8_size = WideCharToMultiByte(CP_UTF8, 0, utf16_str.c_str(), utf16_str.length(), nullptr, 0, nullptr, nullptr);
-    std::string utf8_str(utf8_size, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, utf16_str.c_str(), utf16_str.length(), &utf8_str[0], utf8_size, nullptr, nullptr);
+   // Transcode UTF-16 to UTF-8
+   int utf8_size = WideCharToMultiByte(CP_UTF8, 0, utf16_str.c_str(), utf16_str.length(), nullptr, 0, nullptr, nullptr);
+   std::string utf8_str(utf8_size, '\0');
+   WideCharToMultiByte(CP_UTF8, 0, utf16_str.c_str(), utf16_str.length(), &utf8_str[0], utf8_size, nullptr, nullptr);
 
-    return utf8_str;
+   return utf8_str;
 }
 
-std::wstring CHTTPClient::Utf8ToUtf16(const std::string& str) {
-    std::wstring ret;
-    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), NULL, 0);
-    if (len > 0) {
-        ret.resize(len);
-        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), &ret[0], len);
-    }
-    return ret;
+std::wstring CHTTPClient::Utf8ToUtf16(const std::string &str)
+{
+   std::wstring ret;
+   int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), NULL, 0);
+   if (len > 0)
+   {
+      ret.resize(len);
+      MultiByteToWideChar(CP_UTF8, 0, str.c_str(), str.length(), &ret[0], len);
+   }
+   return ret;
 }
 #endif

@@ -16,6 +16,7 @@
 #include <cstddef>         // std::size_t
 #include <cstdio>          // snprintf
 #include <cstdlib>
+#include <cassert>
 #include <cstring>         // strerror, strlen, memcpy, strcpy
 #include <ctime>
 #include <curl/curl.h>
@@ -40,7 +41,7 @@ class CHTTPClient
 {
 public:
    // Public definitions
-   typedef std::function<int(void*, double, double, double, double)> ProgressFnCallback;
+   typedef std::function<int(void*, uint64_t, double, double, double)> ProgressFnCallback;
    typedef std::function<void(const std::string&)>                   LogFnCallback;
    typedef std::unordered_map<std::string, std::string>              HeadersMap;
    typedef std::vector<char> ByteBuffer;
@@ -79,7 +80,9 @@ public:
       HttpResponse() : iCode(0) {}
       int iCode; // HTTP response code
       HeadersMap mapHeaders; // HTTP response headers fields
-      std::string strBody; // HTTP response body
+      HeadersMap mapHeadersLowercase; // HTTP response headers fields where the key is in lowercase
+      ByteBuffer strBody; // HTTP response body
+      std::string errMessage; // Error message from response
    };
 
    enum SettingsFlag
@@ -106,6 +109,7 @@ public:
    inline void SetTimeout(const int& iTimeout) { m_iCurlTimeout = iTimeout; }
    inline void SetNoSignal(const bool& bNoSignal) { m_bNoSignal = bNoSignal; }
    inline void SetHTTPS(const bool& bEnableHTTPS) { m_bHTTPS = bEnableHTTPS; }
+   inline void SetBasicAuth(const std::string& sUsername, const std::string& sPassword) { m_Username = sUsername; m_Password = sPassword;}
    inline auto GetProgressFnCallback() const
    {
       return m_fnProgressCallback.target<int(*)(void*, double, double, double, double)>();
@@ -139,6 +143,10 @@ public:
                          const PostFormInfo& data,
                          long& lHTTPStatusCode);
 
+   const bool UploadFile(const std::string &strLocalFile,
+                                       const std::string &strURL,
+                                       long &lHTTPStatusCode);
+
    inline void AddHeader(const std::string& strHeader)
    {
       m_pHeaderlist = curl_slist_append(m_pHeaderlist, strHeader.c_str());
@@ -154,7 +162,13 @@ public:
             const std::string& strPutData, HttpResponse& Response);
    const bool Put(const std::string& strUrl, const HeadersMap& Headers,
             const ByteBuffer& Data, HttpResponse& Response);
+   const bool CustomRequest(const std::string& method, const std::string& strUrl,
+            const HeadersMap& Headers, HttpResponse& Response);
    
+   static std::string GetMessage(CURLcode code);
+   static std::string EncodeUrl(const std::string& s);
+   static std::string DecodeUrl(const std::string& s, bool convert_plus_to_space);
+
    // SSL certs
    static const std::string& GetCertificateFile() { return s_strCertificationAuthorityFile; }
    static void SetCertificateFile(const std::string& strPath) { s_strCertificationAuthorityFile = strPath; }
@@ -206,6 +220,7 @@ protected:
    // String Helpers
    static std::string StringFormat(const std::string strFormat, ...);
    static inline void TrimSpaces(std::string& str);
+   static inline void ToLower(std::string& str);
 
    // Curl Debug informations
 #ifdef DEBUG_CURL
@@ -222,6 +237,10 @@ protected:
    SettingsFlag         m_eSettingsFlags;
 
    struct curl_slist*    m_pHeaderlist;
+
+   // Basic Auth
+   std::string          m_Username;
+   std::string          m_Password;
 
    // SSL
    static std::string   s_strCertificationAuthorityFile;
