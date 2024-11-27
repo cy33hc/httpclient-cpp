@@ -459,14 +459,6 @@ const bool CHTTPClient::UploadFile(const std::string &strLocalFile,
       ifsInput.close();
       curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
 
-      // double dUploadLength = 0;
-      // curl_easy_getinfo(m_pCurlSession, CURLINFO_CONTENT_LENGTH_UPLOAD, &dUploadLength); // number of bytes uploaded
-
-      /* Delete downloaded file if status code != 200 as server's response body may
-      contain error 404 */
-      if (lHTTPStatusCode != 200)
-         remove(strLocalFile.c_str());
-
       if (res != CURLE_OK)
       {
          if (m_eSettingsFlags & ENABLE_LOG)
