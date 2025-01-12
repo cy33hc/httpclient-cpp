@@ -208,12 +208,30 @@ const CURLcode CHTTPClient::Perform()
 
    curl_easy_setopt(m_pCurlSession, CURLOPT_URL, m_strURL.c_str());
 
+   AddHeader("User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0)");
+
+   if (m_Cookies.size() > 0)
+   {
+        std::string cookie;
+        for (std::map<std::string, std::string>::iterator it = m_Cookies.begin(); it != m_Cookies.end();)
+        {
+            cookie.append(it->first).append("=").append(it->second);
+            if (std::next(it, 1) != m_Cookies.end())
+            {
+                cookie.append("; ");
+            }
+            ++it;
+        }
+        AddHeader("Cookie:" + cookie);
+   }
+
    if (m_pHeaderlist != nullptr)
       curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPHEADER, m_pHeaderlist);
 
    curl_easy_setopt(m_pCurlSession, CURLOPT_USERAGENT, CLIENT_USERAGENT);
    curl_easy_setopt(m_pCurlSession, CURLOPT_AUTOREFERER, 1L);
    curl_easy_setopt(m_pCurlSession, CURLOPT_FOLLOWLOCATION, 1L);
+   curl_easy_setopt(m_pCurlSession, CURLOPT_UNRESTRICTED_AUTH, 1L);
 
    if (m_iCurlTimeout > 0)
    {
@@ -541,57 +559,30 @@ const bool CHTTPClient::DownloadFile(std::vector<unsigned char> &data, const std
  * @retval false  The header couldn't be posted.
  */
 const bool CHTTPClient::UploadForm(const std::string &strURL,
+                                   const CHTTPClient::HeadersMap &Headers,
                                    const PostFormInfo &data,
-                                   long &lHTTPStatusCode)
+                                   CHTTPClient::HttpResponse &Response)
 {
-   if (strURL.empty())
+   if (InitRestRequest(strURL, Headers, Response))
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
-         m_oLog(LOG_ERROR_EMPTY_HOST_MSG);
+      /** Now specify we want to POST data */
+      curl_easy_setopt(m_pCurlSession, CURLOPT_POST, 1L);
 
+      /* stating that Expect: 100-continue is not wanted */
+      AddHeader("Expect:");
+
+      /** set post form */
+      if (data.m_pFormPost != nullptr)
+         curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPPOST, data.m_pFormPost);
+
+      CURLcode res = Perform();
+
+      return PostRestRequest(res, Response);
+   }
+   else
+   {
       return false;
    }
-   if (!m_pCurlSession)
-   {
-      if (m_eSettingsFlags & ENABLE_LOG)
-         m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
-
-      return false;
-   }
-   // Reset is mandatory to avoid bad surprises
-   curl_easy_reset(m_pCurlSession);
-
-   UpdateURL(strURL);
-
-   /** Now specify we want to POST data */
-   curl_easy_setopt(m_pCurlSession, CURLOPT_POST, 1L);
-
-   /* stating that Expect: 100-continue is not wanted */
-   AddHeader("Expect:");
-
-   /** set post form */
-   if (data.m_pFormPost != nullptr)
-      curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPPOST, data.m_pFormPost);
-
-   /* to avoid printing response's body to stdout.
-    * CURLOPT_WRITEDATA : by default, this is a FILE * to stdout. */
-   curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEFUNCTION, ThrowAwayCallback);
-
-   CURLcode res = Perform();
-
-   curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
-
-   // Check for errors
-   if (res != CURLE_OK)
-   {
-      if (m_eSettingsFlags & ENABLE_LOG)
-         m_oLog(StringFormat(LOG_ERROR_CURL_REQ_FAILURE_FORMAT, m_strURL.c_str(), res,
-                             curl_easy_strerror(res), lHTTPStatusCode));
-
-      return false;
-   }
-
-   return true;
 }
 
 /**
@@ -1152,6 +1143,25 @@ size_t CHTTPClient::RestHeaderCallback(void *pCurlData, size_t usBlockCount, siz
       pServerResponse->mapHeaders[strKey] = strValue;
       ToLower(strKey);
       pServerResponse->mapHeadersLowercase[strKey] = strValue;
+
+      if (strKey.compare("set-cookie") == 0)
+      {
+         std::vector<std::string> cookies = Split(strValue, ";");
+         for (std::vector<std::string>::iterator it = cookies.begin(); it != cookies.end();)
+         {
+            std::vector<std::string> cookie = Split(*it, "=");
+            TrimSpaces(cookie[0]);
+            TrimSpaces(cookie[1]);
+            if (ignore_cookie_keys.find(cookie[0]) == ignore_cookie_keys.end())
+            {
+                  if (cookie.size() > 1)
+                     pServerResponse->cookies[cookie[0]] = cookie[1];
+                  else
+                     pServerResponse->cookies[cookie[0]] = "";
+            }
+            ++it;
+         }
+      }
    }
 
    return (usBlockCount * usBlockSize);

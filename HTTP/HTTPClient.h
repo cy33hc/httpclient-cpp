@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <map>
+#include <set>
 #include <cstddef>         // std::size_t
 #include <cstdio>          // snprintf
 #include <cstdlib>
@@ -36,6 +38,16 @@
 #include <vector>
 
 #include "CurlHandle.h"
+
+struct InsensitiveCompare
+{
+   bool operator()(const std::string &a, const std::string &b) const
+   {
+      return strcasecmp(a.c_str(), b.c_str()) < 0;
+   }
+};
+
+static std::set<std::string, InsensitiveCompare> ignore_cookie_keys = {"path", "expires", "max-age", "domain", "secure"};
 
 class CHTTPClient
 {
@@ -81,6 +93,7 @@ public:
       int iCode; // HTTP response code
       HeadersMap mapHeaders; // HTTP response headers fields
       HeadersMap mapHeadersLowercase; // HTTP response headers fields where the key is in lowercase
+      HeadersMap cookies;
       ByteBuffer strBody; // HTTP response body
       std::string errMessage; // Error message from response
    };
@@ -139,9 +152,10 @@ public:
 
    const bool DownloadFile(std::vector<unsigned char>& data, const std::string& strURL, long& lHTTPStatusCode);
 
-   const bool UploadForm(const std::string& strURL,
-                         const PostFormInfo& data,
-                         long& lHTTPStatusCode);
+   const bool UploadForm(const std::string &strURL,
+                         const CHTTPClient::HeadersMap &Headers,
+                         const PostFormInfo &data,
+                         CHTTPClient::HttpResponse &Response);
 
    const bool UploadFile(const std::string &strLocalFile,
                                        const std::string &strURL,
@@ -150,6 +164,11 @@ public:
    inline void AddHeader(const std::string& strHeader)
    {
       m_pHeaderlist = curl_slist_append(m_pHeaderlist, strHeader.c_str());
+   }
+
+   inline void SetCookie(const std::string& key, const std::string val)
+   {
+      m_Cookies[key] = val;
    }
 
    // REST requests
@@ -222,6 +241,25 @@ protected:
    static inline void TrimSpaces(std::string& str);
    static inline void ToLower(std::string& str);
 
+   static inline std::vector<std::string> Split(const std::string &str, const std::string &delimiter)
+   {
+      std::string text = std::string(str);
+      std::vector<std::string> tokens;
+      size_t pos = 0;
+      while ((pos = text.find(delimiter)) != std::string::npos)
+      {
+         if (text.substr(0, pos).length() > 0)
+               tokens.push_back(text.substr(0, pos));
+         text.erase(0, pos + delimiter.length());
+      }
+      if (text.length() > 0)
+      {
+         tokens.push_back(text);
+      }
+
+      return tokens;
+   }
+
    // Curl Debug informations
 #ifdef DEBUG_CURL
    static int DebugCallback(CURL* curl, curl_infotype curl_info_type, char* strace, size_t nSize, void* pFile);
@@ -237,6 +275,7 @@ protected:
    SettingsFlag         m_eSettingsFlags;
 
    struct curl_slist*    m_pHeaderlist;
+   std::map<std::string, std::string> m_Cookies;
 
    // Basic Auth
    std::string          m_Username;
