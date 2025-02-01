@@ -5,6 +5,7 @@
  */
 
 #include "HTTPClient.h"
+#include "dbglogger.h"
 
 // Static members initialization
 std::string CHTTPClient::s_strCertificationAuthorityFile;
@@ -1151,11 +1152,13 @@ size_t CHTTPClient::RestHeaderCallback(void *pCurlData, size_t usBlockCount, siz
          {
             std::vector<std::string> cookie = Split(*it, "=");
             TrimSpaces(cookie[0]);
-            TrimSpaces(cookie[1]);
             if (ignore_cookie_keys.find(cookie[0]) == ignore_cookie_keys.end())
             {
                   if (cookie.size() > 1)
+                  {
+                     TrimSpaces(cookie[1]);
                      pServerResponse->cookies[cookie[0]] = cookie[1];
+                  }
                   else
                      pServerResponse->cookies[cookie[0]] = "";
             }
