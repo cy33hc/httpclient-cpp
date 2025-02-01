@@ -5,7 +5,6 @@
  */
 
 #include "HTTPClient.h"
-#include "dbglogger.h"
 
 // Static members initialization
 std::string CHTTPClient::s_strCertificationAuthorityFile;
