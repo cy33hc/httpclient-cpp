@@ -460,17 +460,16 @@ const bool CHTTPClient::UploadFile(const std::string &strLocalFile,
 
    UpdateURL(strURL);
 
-   std::ifstream ifsInput(strLocalFile, std::ios::binary | std::ios::ate);
-   auto size = ifsInput.tellg();
-
-   ifsInput.seekg(0);
+   std::ifstream ifsInput(strLocalFile, std::ios::binary);
+   struct stat file_stat;
+   stat(strLocalFile.c_str(), &file_stat);
 
    if (ifsInput)
    {
       curl_easy_setopt(m_pCurlSession, CURLOPT_UPLOAD, 1L);
       curl_easy_setopt(m_pCurlSession, CURLOPT_READFUNCTION, ReadFromFileCallback);
       curl_easy_setopt(m_pCurlSession, CURLOPT_READDATA, &ifsInput);
-      curl_easy_setopt(m_pCurlSession, CURLOPT_INFILESIZE_LARGE, size);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_INFILESIZE_LARGE, file_stat.st_size);
 
       CURLcode res = Perform();
 
