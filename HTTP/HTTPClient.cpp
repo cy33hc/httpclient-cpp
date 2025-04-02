@@ -414,9 +414,6 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
       ofsOutput.close();
       curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
 
-      // double dUploadLength = 0;
-      // curl_easy_getinfo(m_pCurlSession, CURLINFO_CONTENT_LENGTH_UPLOAD, &dUploadLength); // number of bytes uploaded
-
       /* Delete downloaded file if status code != 200 as server's response body may
       contain error 404 */
       if (lHTTPStatusCode != 200)
@@ -435,6 +432,52 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
    {
       m_oLog(StringFormat(LOG_ERROR_DOWNLOAD_FILE_FORMAT, strLocalFile.c_str()));
 
+      return false;
+   }
+
+   return true;
+}
+
+/**
+ * @brief Downloads a remote file to a local file.
+ *
+ * @param [in] strLocalFile Complete path of the local file to download in UTF-8 format.
+ * @param [in] strURL URI of the remote location (with the file name) encoded in UTF-8 format.
+ * @param [out] lHTTPStatusCode HTTP Status code of the response.
+ *
+ * @retval true   Successfully downloaded the file.
+ * @retval false  The file couldn't be downloaded. Check the log messages for more information.
+ */
+const bool CHTTPClient::DownloadFile(void *userData,
+                                     const std::string &strURL,
+                                     void *WriteCallback,
+                                     long &lHTTPStatusCode)
+{
+   if (strURL.empty())
+      return false;
+
+   if (!m_pCurlSession)
+   {
+      if (m_eSettingsFlags & ENABLE_LOG)
+         m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
+
+      return false;
+   }
+   // Reset is mandatory to avoid bad surprises
+   curl_easy_reset(m_pCurlSession);
+
+   UpdateURL(strURL);
+
+   curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPGET, 1L);
+   curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEFUNCTION, WriteCallback);
+   curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEDATA, userData);
+
+   CURLcode res = Perform();
+
+   curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
+
+   if (res != CURLE_OK)
+   {
       return false;
    }
 

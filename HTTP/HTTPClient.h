@@ -150,7 +150,14 @@ public:
                            const std::string& strURL,
                            long& lHTTPStatusCode);
 
-   const bool DownloadFile(std::vector<unsigned char>& data, const std::string& strURL, long& lHTTPStatusCode);
+   const bool DownloadFile(void *userData,
+                           const std::string& strURL,
+                           void *WriteCallback,
+                           long& lHTTPStatusCode);
+
+   const bool DownloadFile(std::vector<unsigned char>& data, 
+                           const std::string& strURL,
+                           long& lHTTPStatusCode);
 
    const bool UploadForm(const std::string &strURL,
                          const CHTTPClient::HeadersMap &Headers,
