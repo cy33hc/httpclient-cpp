@@ -24,6 +24,7 @@ CHTTPClient::CHTTPClient(LogFnCallback Logger) : m_oLog(Logger),
                                                  m_bHTTPS(false),
                                                  m_bNoSignal(false),
                                                  m_bProgressCallbackSet(false),
+                                                 m_bSocketOptCallbackSet(false),
                                                  m_eSettingsFlags(ALL_FLAGS),
                                                  m_pCurlSession(nullptr),
                                                  m_pHeaderlist(nullptr),
@@ -137,6 +138,19 @@ const bool CHTTPClient::CleanupSession()
    m_ProgressStruct.pCurl = m_pCurlSession;
    m_ProgressStruct.dLastRunTime = 0;
    m_bProgressCallbackSet = true;
+}
+
+/**
+ * @brief sets the socketopt function callback and the owner of the client
+ *
+ * @param [in] pOwner pointer to the object owning the client, nullptr otherwise
+ * @param [in] fnCallback callback to socketopt function
+ *
+ */
+/*inline*/ void CHTTPClient::SetSocketOptFnCallback(const SocketOptFnCallback &fnCallback)
+{
+   m_fnSocketOptCallback = fnCallback;
+   m_bSocketOptCallbackSet = true;
 }
 
 /**
@@ -256,6 +270,11 @@ const CURLcode CHTTPClient::Perform()
       curl_easy_setopt(m_pCurlSession, CURLOPT_PROGRESSFUNCTION, *GetProgressFnCallback());
       curl_easy_setopt(m_pCurlSession, CURLOPT_PROGRESSDATA, &m_ProgressStruct);
       curl_easy_setopt(m_pCurlSession, CURLOPT_NOPROGRESS, 0L);
+   }
+
+   if (m_bSocketOptCallbackSet)
+   {
+      curl_easy_setopt(m_pCurlSession, CURLOPT_SOCKOPTFUNCTION, *GetSocketOptFnCallback());
    }
 
    if (!m_Username.empty())
