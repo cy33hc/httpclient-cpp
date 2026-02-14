@@ -54,6 +54,7 @@ class CHTTPClient
 public:
    // Public definitions
    typedef std::function<int(void*, uint64_t, double, double, double)> ProgressFnCallback;
+   typedef std::function<int(void*, int, uint32_t)> SocketOptFnCallback;
    typedef std::function<void(const std::string&)>                   LogFnCallback;
    typedef std::unordered_map<std::string, std::string>              HeadersMap;
    typedef std::vector<char> ByteBuffer;
@@ -118,6 +119,7 @@ public:
 
    // Setters - Getters (for unit tests)
    /*inline*/ void SetProgressFnCallback(void* pOwner, const ProgressFnCallback& fnCallback);
+   /*inline*/ void SetSocketOptFnCallback(const SocketOptFnCallback& fnCallback);
    /*inline*/ void SetProxy(const std::string& strProxy);
    inline void SetTimeout(const int& iTimeout) { m_iCurlTimeout = iTimeout; }
    inline void SetNoSignal(const bool& bNoSignal) { m_bNoSignal = bNoSignal; }
@@ -128,6 +130,10 @@ public:
       return m_fnProgressCallback.target<int(*)(void*, double, double, double, double)>();
    }
    inline void* GetProgressFnCallbackOwner() const { return m_ProgressStruct.pOwner; }
+   inline auto GetSocketOptFnCallback() const
+   {
+      return m_fnSocketOptCallback.target<int(*)(void*, int, uint32_t)>();
+   }
    inline const std::string& GetProxy() const { return m_strProxy; }
    inline const int GetTimeout() const { return m_iCurlTimeout; }
    inline const bool GetNoSignal() const { return m_bNoSignal; }
@@ -294,6 +300,10 @@ protected:
    ProgressFnCallback    m_fnProgressCallback;
    ProgressFnStruct      m_ProgressStruct;
    bool                  m_bProgressCallbackSet;
+
+   // SocketOpt function
+   SocketOptFnCallback    m_fnSocketOptCallback;
+   bool                   m_bSocketOptCallbackSet;
 
    // Log printer callback
    LogFnCallback         m_oLog;
