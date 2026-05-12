@@ -154,7 +154,8 @@ public:
 
    const bool DownloadFile(const std::string& strLocalFile,
                            const std::string& strURL,
-                           long& lHTTPStatusCode);
+                           long& lHTTPStatusCode,
+                           uint64_t offset = 0);
 
    const bool DownloadFile(void *userData,
                            const std::string& strURL,

@@ -400,7 +400,8 @@ const bool CHTTPClient::GetText(const std::string &strURL,
  */
 const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
                                      const std::string &strURL,
-                                     long &lHTTPStatusCode)
+                                     long &lHTTPStatusCode,
+                                     uint64_t offset)
 {
    if (strURL.empty() || strLocalFile.empty())
       return false;
@@ -418,15 +419,26 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
    UpdateURL(strURL);
 
    std::ofstream ofsOutput;
-   ofsOutput.open(
-       strLocalFile, // UTF-8
-       std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
+   if (offset > 0)
+   {
+      ofsOutput.open(
+         strLocalFile, // UTF-8
+         std::ofstream::out | std::ofstream::binary | std::ofstream::app);
+   }
+   else
+   {
+      ofsOutput.open(
+         strLocalFile, // UTF-8
+         std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
+   }
 
    if (ofsOutput)
    {
       curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPGET, 1L);
       curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEFUNCTION, WriteToFileCallback);
       curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEDATA, &ofsOutput);
+      if (offset > 0)
+         AddHeader(std::string("Range: bytes=") + std::to_string(offset) + "-");
 
       CURLcode res = Perform();
 
@@ -435,7 +447,7 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
 
       /* Delete downloaded file if status code != 200 as server's response body may
       contain error 404 */
-      if (lHTTPStatusCode != 200)
+      if (lHTTPStatusCode < 200 || lHTTPStatusCode > 299)
          remove(strLocalFile.c_str());
 
       if (res != CURLE_OK)
