@@ -124,6 +124,7 @@ public:
    inline void SetTimeout(const int& iTimeout) { m_iCurlTimeout = iTimeout; }
    inline void SetNoSignal(const bool& bNoSignal) { m_bNoSignal = bNoSignal; }
    inline void SetHTTPS(const bool& bEnableHTTPS) { m_bHTTPS = bEnableHTTPS; }
+   inline void SetBufferSize(const long& lbufferSize) { m_lbufferSize = lbufferSize; }
    inline void SetBasicAuth(const std::string& sUsername, const std::string& sPassword) { m_Username = sUsername; m_Password = sPassword;}
    inline auto GetProgressFnCallback() const
    {
@@ -137,6 +138,7 @@ public:
    inline const std::string& GetProxy() const { return m_strProxy; }
    inline const int GetTimeout() const { return m_iCurlTimeout; }
    inline const bool GetNoSignal() const { return m_bNoSignal; }
+   inline const long GetBufferSize() const { return m_lbufferSize; }
    inline const std::string& GetURL()      const { return m_strURL; }
    inline const unsigned char GetSettingsFlags() const { return m_eSettingsFlags; }
    inline const bool GetHTTPS() const { return m_bHTTPS; }
@@ -287,6 +289,7 @@ protected:
    bool                 m_bNoSignal;
    bool                 m_bHTTPS;
    SettingsFlag         m_eSettingsFlags;
+   long                 m_lbufferSize;
 
    struct curl_slist*    m_pHeaderlist;
    std::map<std::string, std::string> m_Cookies;

@@ -23,6 +23,7 @@ CHTTPClient::CHTTPClient(LogFnCallback Logger) : m_oLog(Logger),
                                                  m_iCurlTimeout(0),
                                                  m_bHTTPS(false),
                                                  m_bNoSignal(false),
+                                                 m_lbufferSize(16384L),
                                                  m_bProgressCallbackSet(false),
                                                  m_bSocketOptCallbackSet(false),
                                                  m_eSettingsFlags(ALL_FLAGS),
@@ -246,6 +247,7 @@ const CURLcode CHTTPClient::Perform()
    curl_easy_setopt(m_pCurlSession, CURLOPT_AUTOREFERER, 1L);
    curl_easy_setopt(m_pCurlSession, CURLOPT_FOLLOWLOCATION, 1L);
    curl_easy_setopt(m_pCurlSession, CURLOPT_UNRESTRICTED_AUTH, 1L);
+   curl_easy_setopt(m_pCurlSession, CURLOPT_BUFFERSIZE, m_lbufferSize);
 
    if (m_iCurlTimeout > 0)
    {
