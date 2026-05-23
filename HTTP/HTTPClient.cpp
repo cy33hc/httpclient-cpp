@@ -854,6 +854,31 @@ const bool CHTTPClient::Get(const std::string &strUrl,
       return false;
 }
 
+const bool CHTTPClient::Get(const std::string& strUrl,
+                            const HeadersMap& Headers,
+                            HttpResponse& Response,
+                            void *WriteCallback,
+                            void* data)
+{
+   if (InitRestRequest(strUrl, Headers, Response))
+   {
+      // set the received body's callback function
+      curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEFUNCTION, WriteCallback);
+
+      // set data object to pass to callback function above
+      curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEDATA, data);
+
+      // specify a GET request
+      curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPGET, 1L);
+
+      CURLcode res = Perform();
+
+      return PostRestRequest(res, Response);
+   }
+   else
+      return false;
+}
+
 const bool CHTTPClient::CustomRequest(const std::string &method,
                                       const std::string &strUrl,
                                       const HeadersMap &Headers,

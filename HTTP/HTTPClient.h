@@ -190,6 +190,7 @@ public:
    // REST requests
    const bool Head(const std::string& strUrl, const HeadersMap& Headers, HttpResponse& Response);
    const bool Get(const std::string& strUrl, const HeadersMap& Headers, HttpResponse& Response);
+   const bool Get(const std::string& strUrl, const HeadersMap& Headers, HttpResponse& Response, void *WriteCallback, void* data);
    const bool Del(const std::string& strUrl, const HeadersMap& Headers, HttpResponse& Response);
    const bool Post(const std::string& strUrl, const HeadersMap& Headers,
              const std::string& strPostData, HttpResponse& Response);
