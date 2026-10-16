@@ -24,3 +24,15 @@ TestHTTP/TestHTTP_VS14.vcxproj.user
 *build*
 .vscode
 libhttpclient.a
+
+# OXDK / Xbox 360 port
+build-oxdk360/
+oxdk360/test/*.o
+oxdk360/test/default.xex
+oxdk360/test/.oxdklink/
+oxdk360/test/oxdk360-curl/
+oxdk360/test/oxdk360-bearssl/
+oxdk360/test/oxdk360_builtins.o
+oxdk360/test/oxdk360_libcxx.o
+.probe/
+

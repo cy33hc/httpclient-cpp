@@ -6,12 +6,69 @@
 
 #include "HTTPClient.h"
 
+#ifdef HTTPCLIENT360_NO_IOSTREAM
+/* The console has no stdout for std::cout to be, and libc++'s own iostream
+ * object is not usable from a title either: the target defines _MSC_VER, so
+ * libc++ declares the standard stream objects with an asm label in Microsoft's
+ * mangling, while its compiled half defines them under those same names and
+ * clang still mangles everything else the Itanium way. DEBUG_CURL's fallback,
+ * for a debug event that arrives when no trace file is open, is the one place
+ * upstream writes to std::cout; it reports through the debug channel instead,
+ * which on this target is what a title's output is. See README-oxdk360.md. */
+extern "C" void DbgPrint(const char *fmt, ...);
+#endif
+
 // Static members initialization
 std::string CHTTPClient::s_strCertificationAuthorityFile;
 
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
 std::string CHTTPClient::s_strCurlTraceLogDirectory;
 #endif
+
+namespace
+{
+   /* What the download write callback needs to see: the stream to append to, the
+    * handle the transfer runs on so the response code can be read, and whether a
+    * range was asked for. Without the last one a server that ignored the Range
+    * header would have its whole body appended to a partial file, splicing two
+    * copies of it together. */
+   /* The console charges a fixed cost per file write -- about twenty milliseconds
+    * for the sizes curl hands the callback -- and curl hands over roughly
+    * seventeen kilobytes at a time, which works out at 0.85 MB/s. The FTP client
+    * writes megabyte blocks and gets 8 MB/s from the same disk, so this buffers
+    * into a block and writes that. */
+   const size_t kWriteBlock = 1024 * 1024;
+
+   struct DownloadSink
+   {
+      FILE *pFile = nullptr;
+      char *pBuffer = nullptr;
+      size_t nBuffered = 0;
+      size_t nBufferSize = 0;
+      size_t nChunks = 0;
+      size_t nLargest = 0;
+      CURL *pCurl = nullptr;
+      bool bRangeRequested = false;
+   };
+
+   /* The size of a local file, as a 64 bit value. stat()'s st_size is 32 bits on
+    * this target, so an upload of a file over 2 GB declared a wrapped length to
+    * the server -- and since curl compares what it managed to send against that
+    * declared length, a truncated read would have gone unnoticed as well. */
+   curl_off_t FileSize64(const std::string &strPath)
+   {
+      FILE *pFile = fopen(strPath.c_str(), "rb");
+      if (pFile == nullptr)
+         return 0;
+
+      curl_off_t size = 0;
+      if (_fseeki64(pFile, 0, SEEK_END) == 0)
+         size = (curl_off_t)_ftelli64(pFile);
+      fclose(pFile);
+      return size;
+   }
+
+}
 
 /**
  * @brief constructor of the HTTP client object
@@ -21,9 +78,18 @@ std::string CHTTPClient::s_strCurlTraceLogDirectory;
  */
 CHTTPClient::CHTTPClient(LogFnCallback Logger) : m_oLog(Logger),
                                                  m_iCurlTimeout(0),
+                                                 m_lConnectTimeout(30),
+                                                 m_lLowSpeedLimit(1),
+                                                 m_lLowSpeedTime(60),
                                                  m_bHTTPS(false),
                                                  m_bNoSignal(false),
-                                                 m_lbufferSize(16384L),
+                                                 /* A read of sixteen kilobytes at a time is what
+                                                  * held downloads at a megabyte a second on the
+                                                  * console: each recv cost about one tick of the
+                                                  * kernel timer, and the sockets grant 255 KB --
+                                                  * the FTP client asks for a megabyte per read and
+                                                  * gets eight. */
+                                                 m_lbufferSize(262144L),
                                                  m_bProgressCallbackSet(false),
                                                  m_bSocketOptCallbackSet(false),
                                                  m_eSettingsFlags(ALL_FLAGS),
@@ -106,7 +172,7 @@ const bool CHTTPClient::CleanupSession()
       return false;
    }
 
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
    if (m_ofFileCurlTrace.is_open())
    {
       m_ofFileCurlTrace.close();
@@ -256,6 +322,21 @@ const CURLcode CHTTPClient::Perform()
       curl_easy_setopt(m_pCurlSession, CURLOPT_NOSIGNAL, 1);
    }
 
+   if (m_lConnectTimeout > 0)
+   {
+      curl_easy_setopt(m_pCurlSession, CURLOPT_CONNECTTIMEOUT, m_lConnectTimeout);
+      // don't want to get a sig alarm on timeout
+      curl_easy_setopt(m_pCurlSession, CURLOPT_NOSIGNAL, 1);
+   }
+
+   if (m_lLowSpeedLimit > 0 && m_lLowSpeedTime > 0)
+   {
+      curl_easy_setopt(m_pCurlSession, CURLOPT_LOW_SPEED_LIMIT, m_lLowSpeedLimit);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_LOW_SPEED_TIME, m_lLowSpeedTime);
+      // don't want to get a sig alarm on timeout
+      curl_easy_setopt(m_pCurlSession, CURLOPT_NOSIGNAL, 1);
+   }
+
    if (!m_strProxy.empty())
    {
       curl_easy_setopt(m_pCurlSession, CURLOPT_PROXY, m_strProxy.c_str());
@@ -309,14 +390,14 @@ const CURLcode CHTTPClient::Perform()
    if (m_bHTTPS && !m_strSSLKeyPwd.empty())
       curl_easy_setopt(m_pCurlSession, CURLOPT_KEYPASSWD, m_strSSLKeyPwd.c_str());
 
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
    StartCurlDebug();
 #endif
 
    // Perform the requested operation
    res = curl_easy_perform(m_pCurlSession);
 
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
    EndCurlDebug();
 #endif
 
@@ -420,36 +501,66 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
 
    UpdateURL(strURL);
 
-   std::ofstream ofsOutput;
-   if (offset > 0)
-   {
-      ofsOutput.open(
-         strLocalFile, // UTF-8
-         std::ofstream::out | std::ofstream::binary | std::ofstream::app);
-   }
-   else
-   {
-      ofsOutput.open(
-         strLocalFile, // UTF-8
-         std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
-   }
+   /* The FTP client's download loop, which runs at about 8 MB/s on this console
+    * where curl manages 0.72, reads a megabyte at a time and writes each block
+    * with fwrite() into a FILE*, flushing once at the end. This path went through
+    * std::ofstream instead; the two are now the same shape, so they can be
+    * compared directly. */
+   FILE *pFile = fopen(strLocalFile.c_str(), offset > 0 ? "ab" : "wb");
 
-   if (ofsOutput)
+   if (pFile != nullptr)
    {
+      char *pBlock = (char *)malloc(kWriteBlock);
+      DownloadSink sink;
+      sink.pFile = pFile;
+      sink.pBuffer = pBlock;
+      sink.nBufferSize = pBlock ? kWriteBlock : 0;
+      sink.pCurl = m_pCurlSession;
+      sink.bRangeRequested = (offset > 0);
+
       curl_easy_setopt(m_pCurlSession, CURLOPT_HTTPGET, 1L);
       curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEFUNCTION, WriteToFileCallback);
-      curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEDATA, &ofsOutput);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_WRITEDATA, &sink);
       if (offset > 0)
          AddHeader(std::string("Range: bytes=") + std::to_string(offset) + "-");
 
       CURLcode res = Perform();
 
-      ofsOutput.close();
+      /* Whatever is still buffered has to reach the file: fclose() flushes stdio,
+       * not this. */
+      if (sink.pBuffer != nullptr && sink.nBuffered > 0)
+      {
+         if (fwrite(sink.pBuffer, 1, sink.nBuffered, pFile) != sink.nBuffered &&
+             res == CURLE_OK)
+            res = CURLE_WRITE_ERROR;
+         sink.nBuffered = 0;
+      }
+
+      free(pBlock);
+
+      /* What curl actually handed over. Raising CURLOPT_BUFFERSIZE from sixteen
+       * kilobytes to two hundred and fifty-six changed the timings not at all,
+       * which cannot be right if it reached the read path -- so this says whether
+       * the setting arrived. */
+      if (m_eSettingsFlags & ENABLE_LOG)
+         m_oLog(std::string("download: chunks=") + std::to_string(sink.nChunks) +
+                " largest=" + std::to_string(sink.nLargest) +
+                " bytes, buffer size=" + std::to_string(m_lbufferSize));
+
+      /* Buffered writes mean a failure can surface only here: a file stream that
+       * could not be flushed has not written everything it was given -- a full
+       * partition, or the filesystem's size limit -- and that has to be a failed
+       * download rather than a file missing its tail. */
+      if (fclose(pFile) != 0 && res == CURLE_OK)
+         res = CURLE_WRITE_ERROR;
+
       curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
 
       /* Delete downloaded file if status code != 200 as server's response body may
-      contain error 404 */
-      if (lHTTPStatusCode < 200 || lHTTPStatusCode > 299)
+      contain error 404. Never on a resume: a range request that was refused, or
+      that asked past the end of the file, must not throw away what is already
+      downloaded -- that is the whole point of resuming. */
+      if (offset == 0 && (lHTTPStatusCode < 200 || lHTTPStatusCode > 299))
          remove(strLocalFile.c_str());
 
       if (res != CURLE_OK)
@@ -537,15 +648,14 @@ const bool CHTTPClient::UploadFile(const std::string &strLocalFile,
    UpdateURL(strURL);
 
    std::ifstream ifsInput(strLocalFile, std::ios::binary);
-   struct stat file_stat;
-   stat(strLocalFile.c_str(), &file_stat);
+   curl_off_t file_size = FileSize64(strLocalFile);
 
    if (ifsInput)
    {
       curl_easy_setopt(m_pCurlSession, CURLOPT_UPLOAD, 1L);
       curl_easy_setopt(m_pCurlSession, CURLOPT_READFUNCTION, ReadFromFileCallback);
       curl_easy_setopt(m_pCurlSession, CURLOPT_READDATA, &ifsInput);
-      curl_easy_setopt(m_pCurlSession, CURLOPT_INFILESIZE_LARGE, file_stat.st_size);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_INFILESIZE_LARGE, file_size);
 
       CURLcode res = Perform();
 
@@ -1119,16 +1229,62 @@ size_t CHTTPClient::WriteInStringCallback(void *ptr, size_t size, size_t nmemb, 
  */
 size_t CHTTPClient::WriteToFileCallback(void *buff, size_t size, size_t nmemb, void *data)
 {
-   if ((size == 0) || (nmemb == 0) || ((size * nmemb) < 1) || (data == nullptr))
+   DownloadSink *pSink = reinterpret_cast<DownloadSink *>(data);
+   if ((size == 0) || (nmemb == 0) || ((size * nmemb) < 1) || (pSink == nullptr) ||
+       (pSink->pFile == nullptr) || (pSink->pCurl == nullptr))
       return 0;
 
-   std::ofstream *pFileStream = reinterpret_cast<std::ofstream *>(data);
-   if (pFileStream->is_open())
+   FILE *pFile = pSink->pFile;
+
+   /* A resumed transfer is only valid as a 206: the server is sending the rest of
+    * the file, starting where the local copy stops. If it answered 200 it ignored
+    * the range and is sending the whole thing, and appending that would splice two
+    * copies together. This is checked here, before a byte is written, because by
+    * now the response headers have been parsed and nothing has been appended yet;
+    * a short return becomes CURLE_WRITE_ERROR and the caller starts over. */
+   if (pSink->bRangeRequested)
    {
-      pFileStream->write(reinterpret_cast<char *>(buff), size * nmemb);
+      long lResponseCode = 0;
+      curl_easy_getinfo(pSink->pCurl, CURLINFO_RESPONSE_CODE, &lResponseCode);
+      if (lResponseCode != 206)
+         return 0;
    }
 
-   return size * nmemb;
+   /* fwrite(ptr, 1, n) -- the same call, in the same shape, as the FTP client's
+    * download loop, which is the one that runs at 8 MB/s here. A short write means
+    * the disk refused it, and stopping the transfer is the only honest answer:
+    * carrying on would report a completed download of a file missing its tail.
+    *
+    * It is done a block at a time. A write costs the same whether it carries
+    * seventeen kilobytes or a megabyte, so paying it once per callback is what
+    * held the transfer at 0.85 MB/s. */
+   const size_t nThis = size * nmemb;
+
+   pSink->nChunks++;
+   if (nThis > pSink->nLargest)
+      pSink->nLargest = nThis;
+
+   if (pSink->pBuffer == nullptr || nThis >= pSink->nBufferSize)
+   {
+      if (pSink->nBuffered > 0 &&
+          fwrite(pSink->pBuffer, 1, pSink->nBuffered, pFile) != pSink->nBuffered)
+         return 0;
+      pSink->nBuffered = 0;
+      if (fwrite(buff, 1, nThis, pFile) != nThis)
+         return 0;
+      return nThis;
+   }
+
+   if (pSink->nBuffered + nThis > pSink->nBufferSize)
+   {
+      if (fwrite(pSink->pBuffer, 1, pSink->nBuffered, pFile) != pSink->nBuffered)
+         return 0;
+      pSink->nBuffered = 0;
+   }
+
+   memcpy(pSink->pBuffer + pSink->nBuffered, buff, nThis);
+   pSink->nBuffered += nThis;
+   return nThis;
 }
 
 /**
@@ -1520,7 +1676,7 @@ size_t CHTTPClient::RestReadCallback(void *pCurlData, size_t usBlockCount, size_
 
 // CURL DEBUG INFO CALLBACKS
 
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
 void CHTTPClient::SetCurlTraceLogDirectory(const std::string &strPath)
 {
    s_strCurlTraceLogDirectory = strPath;
@@ -1541,8 +1697,27 @@ void CHTTPClient::SetCurlTraceLogDirectory(const std::string &strPath)
 
 int CHTTPClient::DebugCallback(CURL *curl, curl_infotype curl_info_type, char *pszTrace, size_t usSize, void *pFile)
 {
+   /* Data events fire once per transfer chunk -- about a thousand times for a
+    * twenty megabyte pack -- and on a console each line here is a formatted
+    * DbgPrint round trip. That was costing roughly 24 ms per 17 KB, which paces
+    * the whole transfer: the download ran at the speed of the debug channel
+    * rather than at the speed of the network. The event kinds below are the ones
+    * that describe a transfer (its text, its headers) instead of every byte of
+    * it, and they still print. Nothing is lost for a caller that wants the bytes:
+    * those go to the trace file, and that branch is left alone. */
+   if (pFile == nullptr &&
+       (curl_info_type == CURLINFO_DATA_IN || curl_info_type == CURLINFO_DATA_OUT ||
+        curl_info_type == CURLINFO_SSL_DATA_IN ||
+        curl_info_type == CURLINFO_SSL_DATA_OUT))
+      return 0;
+
    std::string strText;
    std::string strTrace(pszTrace, usSize);
+#ifdef HTTPCLIENT360_NO_IOSTREAM
+   /* Longest line this callback will put on the debug channel. A header line is
+    * short; anything longer is payload and is reported by size instead. */
+   const size_t nMaxDebugLine = 512;
+#endif
 
    switch (curl_info_type)
    {
@@ -1574,8 +1749,29 @@ int CHTTPClient::DebugCallback(CURL *curl, curl_infotype curl_info_type, char *p
    std::ofstream *pofTraceFile = reinterpret_cast<std::ofstream *>(pFile);
    if (pofTraceFile == nullptr)
    {
+#ifdef HTTPCLIENT360_NO_IOSTREAM
+      /* One line per event, on the channel the rest of a console title reports
+       * through -- but never the payload itself.
+       *
+       * The console's DbgPrint formats into a fixed-size buffer, and a body
+       * chunk is not a line. curl hands this callback whatever has arrived, so
+       * with CURLOPT_BUFFERSIZE at a megabyte a 22 KB directory listing comes
+       * through here as one %s. That overran the buffer and took the title down
+       * at the first byte of the first response that had a body -- a HEAD, which
+       * is what the connection test does, has none, which is why it looked like
+       * transfers worked until the first real GET. The debug lines those events
+       * produced came out empty rather than truncated.
+       *
+       * So the data kinds are reported by size, and the line kinds -- where the
+       * useful diagnostics are -- are capped. Nothing is lost: a caller that
+       * wants the bytes names a trace directory, and the branch below writes the
+       * whole of them to that file. */
+      DbgPrint("[DEBUG] cURL debug log [%d]: %s", static_cast<int>(curl_info_type),
+               strTrace.substr(0, nMaxDebugLine).c_str());
+#else
       std::cout << "[DEBUG] cURL debug log [" << curl_info_type << "]: "
                 << " - " << strTrace;
+#endif
    }
    else
    {

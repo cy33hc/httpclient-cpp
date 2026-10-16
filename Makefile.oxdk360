@@ -1,0 +1,396 @@
+# Build httpclient-cpp for the Xbox 360 with the OXDK toolchain.
+#
+#   make -f Makefile.oxdk360              -> build-oxdk360/libhttpclient.a
+#   make -f Makefile.oxdk360 install      -> into $(PREFIX)
+#   make -f Makefile.oxdk360 linkcheck    -> link the smoke test title
+#   make -f Makefile.oxdk360 check        -> xexcheck.py on that title
+#   make -f Makefile.oxdk360 check-install
+#   make -f Makefile.oxdk360 clean
+#
+# The compiler and flags come from OXDK itself (oxdk360/flags.mk), so this
+# archive and a title built by xbox360/xbox360.mk cannot drift apart on the
+# Xenon ABI or the libc++ configuration. Objects land in build-oxdk360; the
+# upstream source tree is only ever read.
+#
+# httpclient-cpp is a libcurl wrapper, so it is a C++ library that reaches a C
+# one. libcurl for this target is built and installed by the curl port and
+# picked up through its own fragment, which also brings BearSSL, its archive,
+# the xnet and oldnames XDK libraries and the two platform shims curl needs.
+
+OXDK_DIR ?= $(HOME)/x360projects/OXDK
+BUILD    ?= build-oxdk360
+PREFIX   ?= $(OXDK_DIR)/xbox360/third-party/httpclient
+
+# curl's fragment is installed by `make -f Makefile.oxdk360 install` in the curl
+# source tree. CURL360_MK overrides it for a port that lives somewhere else.
+CURL360_MK ?= $(OXDK_DIR)/xbox360/third-party/curl/oxdk360/curl360.mk
+
+# Absolute: the libc++ build is a sub-make in another directory that reuses
+# these flags, so a relative include path would resolve against the wrong tree
+# there.
+HERE := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
+# Both third-party fragments this makefile includes were written for a title and
+# declare rules of their own. Without this, the first of those rules becomes the
+# default goal and `make -f Makefile.oxdk360` copies an archive around instead of
+# building this library.
+.DEFAULT_GOAL := all
+
+ifeq ($(wildcard $(HERE)/HTTP/HTTPClient.h),)
+$(error run this from the httpclient-cpp source directory, next to Makefile.oxdk360)
+endif
+
+# clean and refresh-flags have no reason to need a compiler, and refresh-flags
+# is the one target that must work when the flags are the problem.
+ifneq ($(filter clean refresh-flags libcxx-clean,$(MAKECMDGOALS)),)
+OXDK_NEEDED :=
+else
+OXDK_NEEDED := 1
+endif
+
+ifdef OXDK_NEEDED
+$(shell mkdir -p $(BUILD))
+$(shell $(MAKE) --no-print-directory -s -f $(HERE)/oxdk360/flags.mk flags \
+            OXDK_DIR=$(OXDK_DIR) > $(BUILD)/toolchain.mk)
+include $(BUILD)/toolchain.mk
+
+ifeq ($(CLANGXX),)
+$(error OXDK gave no compiler. Run $(OXDK_DIR)/scripts/doctor.sh and see \
+README-oxdk360.md)
+endif
+endif
+
+# ---------------------------------------------------------------------------
+# libcurl
+#
+# This library is nothing but a wrapper around it, so the port's own fragment is
+# included rather than copied: it carries the include directories, the two ABI
+# defines, and -- for a title that links -- BearSSL, its archive and the xnet and
+# oldnames XDK libraries a transfer needs. The title fragment under oxdk360/
+# includes this same file again, for the same reason: there is one description
+# of what libcurl is on this target and this is it.
+#
+# It has to be a project that has run `make -f Makefile.oxdk360 install` in the
+# curl source tree first. That tree is a sibling of this one; CURL360_MK and
+# CURL360_ROOT override the location.
+#
+# OUTPUT_DIR and XEX are set to nothing before the include because the fragment
+# is written for a title: it refuses to be included before oxdk.mk, and it hangs
+# its copies of the archives off $(OUTPUT_DIR) and the title's link rule off
+# $(XEX). Neither is this build's, and neither rule runs, so a placeholder is
+# enough to read the variables out.
+# ---------------------------------------------------------------------------
+
+ifdef OXDK_NEEDED
+ifeq ($(wildcard $(CURL360_MK)),)
+$(error libcurl for the Xbox 360 is not installed. Looking for $(CURL360_MK). \
+Build and install it from the curl source tree: \
+`make -f Makefile.oxdk360 install` there)
+endif
+
+OUTPUT_DIR ?= $(abspath $(BUILD))/curl-hook
+XEX        ?= $(abspath $(BUILD))/curl-hook/default.xex
+
+include $(CURL360_MK)
+
+ifeq ($(wildcard $(CURL360_ROOT)/include/curl/curl.h),)
+$(error $(CURL360_MK) names $(CURL360_ROOT) but there is no \
+include/curl/curl.h there. Set CURL360_ROOT to the installed libcurl, or \
+CURL360_MK to its curl360.mk)
+endif
+endif
+
+# ---------------------------------------------------------------------------
+# What this is built as
+#
+# Same ABI knobs as both third-party libraries either side of it: libcurl was
+# built by the curl port with -DCURL_STATICLIB and a 64-bit curl_off_t, and the
+# two have to agree or the archive's idea of CURLOPT_INFILESIZE_LARGE is not the
+# header's. Those two defines arrive through CURL360_DEFS below, and are spelled
+# out again here so a compile of this library works even if a caller trimmed the
+# fragment.
+#
+# The XDK headers are MSVC headers and clang cannot act on most of what they
+# warn about. Suppressed the way the curl port suppresses them.
+# ---------------------------------------------------------------------------
+
+HTTPCLIENT_WARN_OFF := -Wno-varargs -Wno-ignored-attributes -Wno-pragma-pack \
+                       -Wno-microsoft-anon-tag -Wno-ignored-qualifiers \
+                       -Wno-deprecated-declarations -Wno-ignored-pragma-intrinsic
+
+# The port's two defines, and no exception flags.
+#
+# -DHTTPCLIENT360_NO_EXCEPTIONS is the first change to the source. OXDK builds a
+# title with -fno-exceptions, because clang emits an EH personality the XDK CRT
+# does not ship: on this target a throw cannot be compiled, and nothing could
+# catch it if it were. Upstream's CurlHandle constructor throws
+# std::runtime_error when curl_global_init fails; with this define it reports the
+# error and stops instead, which is what the throw amounts to on a console. It is
+# also what keeps std::runtime_error's type information and the __cxa_* entries
+# out of the archive.
+#
+# -DHTTPCLIENT360_NO_IOSTREAM is the second, and it is about DEBUG_CURL. Upstream
+# defines DEBUG_CURL in its own header, so the trace machinery is always in this
+# archive; its fallback path, for a debug event that arrives with no trace file
+# open, writes to std::cout. There is no stdout on a console, and libc++'s own
+# iostream object cannot stand in for one here: the target defines _MSC_VER, so
+# libc++ declares the standard stream objects with an asm label in Microsoft's
+# mangling while clang goes on mangling every reference the Itanium way. The
+# declaration and the definition in libc++'s compiled half never meet, and the
+# link stops on std::cout. With this define that path reports through DbgPrint,
+# which is where a console title's output goes anyway. The trace file path --
+# the part of DEBUG_CURL that is actually usable here -- is untouched.
+#
+# DEBUG_CURL: HTTPClient.h defines it, and defines it only if nothing else has,
+# so setting it here decides the build. A project turns the trace machinery off
+# with `make -f Makefile.oxdk360 DEBUG_CURL=0`; the default is upstream's 1. The
+# guards in the source are `#if`, not `#ifdef`, which is what makes =0 mean off
+# rather than merely defined.
+DEBUG_CURL ?= 1
+
+HTTPCLIENT_BASE_CXXFLAGS := $(OXDK360_CXXFLAGS) $(HTTPCLIENT_WARN_OFF) \
+                            -std=c++20 -O2 -DHTTPCLIENT360_NO_EXCEPTIONS \
+                            -DHTTPCLIENT360_NO_IOSTREAM -DDEBUG_CURL=$(DEBUG_CURL)
+
+# ---------------------------------------------------------------------------
+# Include order
+#
+#   -I HTTP                      HTTPClient.h and CurlHandle.h, which the
+#                                library includes by bare name.
+#   curl's oxdk360/include        the port's <windows.h> and <winsock2.h>. It has
+#                                to come before OXDK's own libc++ <windows.h>
+#                                shim, or which shim answers the name decides
+#                                which <xtl.h> chain the build takes; see
+#                                oxdk360/include/httpclient360.h.
+#   oxdk360/include               the force-include header below.
+#   curl's include                <curl/curl.h>.
+#
+# All four are -isystem because the XDK headers they sit beside are not this
+# project's to fix. The two HTTP/ headers stay on -I so that a title including
+# them gets them from here.
+# ---------------------------------------------------------------------------
+
+HTTPCLIENT_INCLUDES := -I$(HERE)/HTTP \
+                       $(CURL360_INCLUDES) \
+                       -isystem $(HERE)/oxdk360/include
+
+HTTPCLIENT_DEFS := $(CURL360_DEFS) -DCURL_STATICLIB -D_INTEGRAL_MAX_BITS=64
+
+# Force-included ahead of every translation unit. See the header: it puts
+# <windows.h> before <curl/curl.h> so the console's <winsockx.h> can finish
+# before <xonline.h> needs what it declares, and it maps the two POSIX
+# case-insensitive string comparisons onto the CRT's underscored ones.
+HTTPCLIENT_FORCE := -include httpclient360.h
+
+HTTPCLIENT_CFLAGS := $(HTTPCLIENT_BASE_CXXFLAGS) $(HTTPCLIENT_DEFS) \
+                     $(HTTPCLIENT_INCLUDES) $(HTTPCLIENT_FORCE)
+
+# ---------------------------------------------------------------------------
+# Sources
+#
+# Both of upstream's translation units. CurlHandle.cpp owns the one
+# curl_global_init/curl_global_cleanup pair in the library; HTTPClient.cpp is
+# the wrapper.
+# ---------------------------------------------------------------------------
+
+HTTPCLIENT_SRCS := HTTP/HTTPClient.cpp HTTP/CurlHandle.cpp
+HTTPCLIENT_OBJS := $(addprefix $(BUILD)/obj/,$(HTTPCLIENT_SRCS:.cpp=.o))
+
+# The compiler runtime clang calls into for 64-bit division and int64-to-double.
+# The XDK ships none, because Microsoft's compiler does the work inline and never
+# needs them; see oxdk360/builtins/builtins.c.
+BUILTINS_SRC := $(OXDK_DIR)/xbox360/oxdk360/builtins/builtins.c
+BUILTINS_OBJ := $(BUILD)/obj/oxdk360_builtins.o
+
+# The pieces libc++ declares in its headers and defines in the compiled library
+# that does not exist for this target: std::basic_string<char> instantiated, the
+# unordered-container bucket sizing helper, the hardened-check abort hook, and
+# the FormatMessageA declaration libc++'s system_error formats through. All of
+# them are names this library's objects reach, so the object goes into the
+# archive rather than being left for a title to find.
+#
+# Together with OXDK's builtins.c next to it -- the compiler runtime helpers
+# clang calls into, and the stopping implementations of __cxa_throw and the
+# personality clang emits for the code that can still throw -- that is the whole
+# runtime this archive needs from a C++ implementation.
+LIBCXX_RUNTIME_SRC := $(OXDK_DIR)/xbox360/oxdk360/libcxx-shim/libcxx_runtime.cpp
+LIBCXX_RUNTIME_OBJ := $(BUILD)/obj/oxdk360_libcxx.o
+
+# std::to_string, _Unwind_Resume, __cxa_rethrow and two RTTI vtables: the C++
+# runtime entry points clang emits for this target that OXDK's builtins does not
+# answer. See the file for why each one is here rather than in libc++'s source
+# list or in builtins.c.
+CONSOLE_RUNTIME_SRC := $(HERE)/oxdk360/libcxx-shim/console_runtime.cpp
+CONSOLE_RUNTIME_OBJ := $(BUILD)/obj/httpclient360_console_runtime.o
+
+# libc++'s compiled half.
+#
+# Most of libc++ is headers, but std::string's out-of-line members, the locale
+# and iostream machinery std::stringstream reaches, and the unordered-container
+# bucket sizing are compiled into libc++.a on a normal platform, and there is no
+# such library for this target. OXDK has the makefile (xbox360/oxdk360/libcxx-lib)
+# and this port supplies the source list and the flags, so what a title links is
+# exactly what its headers declared.
+#
+# LIBCXX_SRC is derived from the include directory OXDK gave us: its parent is
+# the libcxx directory of the checkout the headers came from. Mixing releases
+# mismatches the inline half against the compiled half, which links and then
+# misbehaves.
+LIBCXX_SRC   ?= $(patsubst %/include,%,$(OXDK360_LIBCXX_DIR))
+LIBCXX_BUILD ?= $(abspath $(BUILD))/libcxx
+LIBCXX_A     := $(LIBCXX_BUILD)/libcxx-xenon.a
+
+# OXDK's list for a title, unchanged, and deliberately without string.cpp: that
+# file includes <charconv>, which reaches into private headers this libc++
+# release does not ship, and then wants C functions the XDK CRT does not declare.
+# std::to_string comes from oxdk360/libcxx-shim/console_runtime.cpp instead.
+LIBCXX_SOURCES := \
+    algorithm any bind call_once error_category exception fstream functional hash \
+    ios ios.instantiations iostream locale memory memory_resource new new_handler \
+    new_helpers optional ostream random_shuffle regex stdexcept strstream \
+    system_error typeinfo valarray variant vector verbose_abort \
+    support/win32/locale_win32 support/win32/support
+
+LIB := $(BUILD)/libhttpclient.a
+
+all: $(LIB)
+
+core: $(HTTPCLIENT_OBJS)
+
+# Compile one file with the library's own flags, for checking a change without
+# building the whole archive:
+#
+#   make -f Makefile.oxdk360 probe PROBE=HTTP/HTTPClient.cpp
+#
+probe:
+	@test -n "$(PROBE)" || { echo "set PROBE=path/to/file.cpp"; exit 1; }
+	$(CLANGXX) $(HTTPCLIENT_CFLAGS) -fsyntax-only $(PROBE)
+	@echo "  $(PROBE): ok"
+
+$(BUILD)/obj/%.o: $(HERE)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CLANGXX) $(HTTPCLIENT_CFLAGS) -c $< -o $@
+	@$(OBJCOPY) --remove-section=.deplibs $@ 2>/dev/null || true
+
+$(BUILTINS_OBJ): $(BUILTINS_SRC)
+	@mkdir -p $(dir $@)
+	$(CLANG) $(OXDK360_CFLAGS) -O2 -c $< -o $@
+	@$(OBJCOPY) --remove-section=.deplibs $@ 2>/dev/null || true
+
+$(LIBCXX_RUNTIME_OBJ): $(LIBCXX_RUNTIME_SRC)
+	@mkdir -p $(dir $@)
+	$(CLANGXX) $(HTTPCLIENT_BASE_CXXFLAGS) -c $< -o $@
+	@$(OBJCOPY) --remove-section=.deplibs $@ 2>/dev/null || true
+
+$(CONSOLE_RUNTIME_OBJ): $(CONSOLE_RUNTIME_SRC)
+	@mkdir -p $(dir $@)
+	$(CLANGXX) $(HTTPCLIENT_BASE_CXXFLAGS) -c $< -o $@
+	@$(OBJCOPY) --remove-section=.deplibs $@ 2>/dev/null || true
+
+# Driven rather than copied: OXDK owns this rule, and it is the same one a title
+# gets, so a change there reaches here. It has no dependency tracking of its
+# own, so `make -f Makefile.oxdk360 libcxx-clean` before rebuilding after an
+# OXDK or libc++ change.
+libcxx: $(LIBCXX_A)
+
+$(LIBCXX_A):
+	@mkdir -p $(LIBCXX_BUILD)
+	$(MAKE) -C $(OXDK_DIR)/xbox360/oxdk360/libcxx-lib \
+	    CLANG='$(CLANG)' LLVM_AR='$(LLVM_AR)' LIBCXX_SRC='$(LIBCXX_SRC)' \
+	    BUILD='$(LIBCXX_BUILD)' LIB='$(LIBCXX_A)' \
+	    OXDK360_CXXFLAGS='$(HTTPCLIENT_BASE_CXXFLAGS)' \
+	    SOURCES='$(LIBCXX_SOURCES)'
+
+libcxx-clean:
+	rm -rf $(LIBCXX_BUILD)
+
+# The archive is checked as it is made. An archive missing its entry points
+# still links -- a title that never calls them just gets a smaller image -- so
+# the check has to be here rather than at the other end.
+HTTPCLIENT_REQUIRED_SYMBOLS := \
+    _ZN11CHTTPClient11InitSessionERKbRKNS_12SettingsFlagE \
+    _ZN11CHTTPClient14CleanupSessionEv \
+    _ZN11CHTTPClient7GetTextERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEERS6_Rl \
+    _ZN11CHTTPClient12DownloadFileERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEES8_Rly \
+    _ZN11CHTTPClient3GetERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEERKNS0_13unordered_mapIS6_S6_NS0_4hashIS6_EENS0_8equal_toIS6_EENS4_INS0_4pairIS7_S6_EEEEEERNS_12HttpResponseE \
+    _ZN11CHTTPClient4HeadERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEERKNS0_13unordered_mapIS6_S6_NS0_4hashIS6_EENS0_8equal_toIS6_EENS4_INS0_4pairIS7_S6_EEEEEERNS_12HttpResponseE \
+    _ZN11CHTTPClient4PostERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEERKNS0_13unordered_mapIS6_S6_NS0_4hashIS6_EENS0_8equal_toIS6_EENS4_INS0_4pairIS7_S6_EEEEEES8_RNS_12HttpResponseE \
+    _ZN10CurlHandle8instanceEv
+
+$(LIB): $(HTTPCLIENT_OBJS) $(CONSOLE_RUNTIME_OBJ) $(LIBCXX_RUNTIME_OBJ) $(BUILTINS_OBJ)
+	rm -f $@
+	$(LLVM_AR) rcs $@ $^
+	@echo "  $@: $(words $^) objects, $$($(LLVM_NM) --defined-only $@ | grep -c ' T ') functions"
+	@symbols=$$($(LLVM_NM) --defined-only $@ | grep ' T ' | awk '{ print $$3 }' | tr '\n' ' '); \
+	for symbol in $(HTTPCLIENT_REQUIRED_SYMBOLS); do \
+	    case " $$symbols " in \
+	        *" $$symbol "*) ;; \
+	        *) echo "  $$symbol is missing, the archive is not usable"; exit 1 ;; \
+	    esac; \
+	done
+
+# ---------------------------------------------------------------------------
+# Install
+#
+# The layout the other OXDK third-party libraries use: <root>/include,
+# <root>/lib, and a fragment under <root>/oxdk360 a title includes in one line.
+# ---------------------------------------------------------------------------
+
+install: $(LIB) $(LIBCXX_A)
+	@mkdir -p $(PREFIX)/include/httpclient $(PREFIX)/lib $(PREFIX)/oxdk360/include
+	cp $(HERE)/HTTP/HTTPClient.h $(HERE)/HTTP/CurlHandle.h $(PREFIX)/include/httpclient/
+	cp $(HERE)/oxdk360/include/httpclient360.h $(PREFIX)/oxdk360/include/
+	cp $(LIB) $(PREFIX)/lib/
+	cp $(LIBCXX_A) $(PREFIX)/lib/
+	sed -e 's|@HTTPCLIENT360_ROOT@|$(PREFIX)|g' \
+	    -e 's|@CURL360_MK@|$(CURL360_MK)|g' \
+	    -e 's|@DEBUG_CURL@|$(DEBUG_CURL)|g' \
+	    $(HERE)/oxdk360/httpclient360.mk.in > $(PREFIX)/oxdk360/httpclient360.mk
+	@echo
+	@echo "  installed to $(PREFIX)"
+	@echo "    include/httpclient/           HTTPClient.h, CurlHandle.h"
+	@echo "    lib/libhttpclient.a           httpclient-cpp, Xbox 360"
+	@echo "    lib/libcxx-xenon.a            libc++'s compiled half"
+	@echo "    oxdk360/include/              the force-include header"
+	@echo "    oxdk360/httpclient360.mk      the build glue to include"
+
+# ---------------------------------------------------------------------------
+# Check what a title gets
+#
+# `make install` then `include httpclient360.mk` is the path a title takes, and
+# it is a different path through the flags than oxdk360/test's: the fragment
+# supplies the include directories, the force-include, the definitions and the
+# archives, and it is OXDK's own libc++ runtime object that has to compile with
+# them.
+#
+#   make -f Makefile.oxdk360 check-install
+#
+# Installs into $(BUILD)/install and builds the same smoke test from a title
+# that includes the installed fragment and nothing else.
+# ---------------------------------------------------------------------------
+
+CHECK_PREFIX := $(abspath $(BUILD))/install
+
+check-install: | libcxx
+	$(MAKE) -f $(HERE)/Makefile.oxdk360 install PREFIX='$(CHECK_PREFIX)'
+	$(MAKE) -C $(HERE)/oxdk360/test \
+	    HTTPCLIENT360_MK='$(CHECK_PREFIX)/oxdk360/httpclient360.mk' \
+	    OUTPUT_DIR='$(abspath $(BUILD))/installcheck'
+	@echo
+	@echo "  the installed fragment built and linked a title: $(abspath $(BUILD))/installcheck/default.xex"
+
+# Link check: the same title, through the installed fragment in the OXDK prefix.
+linkcheck:
+	$(MAKE) -C $(HERE)/oxdk360/test
+
+check: linkcheck
+	python3 $(OXDK_DIR)/xbox360/tools/xexutil/xexcheck.py \
+	    $(HERE)/oxdk360/test/default.xex
+
+clean:
+	rm -rf $(BUILD)
+
+refresh-flags:
+	rm -f $(BUILD)/toolchain.mk
+
+.PHONY: all core probe libcxx libcxx-clean install check-install linkcheck check clean refresh-flags

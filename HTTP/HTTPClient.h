@@ -12,7 +12,6 @@
 #define CLIENT_USERAGENT "httpclientcpp-agent/1.0"
 
 #include <algorithm>
-#include <atomic>
 #include <map>
 #include <set>
 #include <cstddef>         // std::size_t
@@ -26,7 +25,6 @@
 #include <functional>
 #include <iostream>
 #include <memory>    // std::unique_ptr
-#include <mutex>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sstream>
@@ -39,6 +37,17 @@
 
 #include "CurlHandle.h"
 
+/*
+ * OXDK360: upstream wrote this as a plain #define, which left it impossible to
+ * build without the trace machinery and made a -DDEBUG_CURL on the command line
+ * a redefinition. Guarded, it is on by default as upstream had it and a project
+ * can turn it off with -DDEBUG_CURL=0. See README-oxdk360.md: the trace file is
+ * the part of this that works on a console.
+ */
+#ifndef DEBUG_CURL
+#define DEBUG_CURL 1
+#endif
+
 struct InsensitiveCompare
 {
    bool operator()(const std::string &a, const std::string &b) const
@@ -47,7 +56,24 @@ struct InsensitiveCompare
    }
 };
 
-static std::set<std::string, InsensitiveCompare> ignore_cookie_keys = {"path", "expires", "max-age", "domain", "secure"};
+// OXDK360: the initialiser-list construction this had needs a C++11 standard
+// library, and the XDK's <set> predates it -- it offers only set() and
+// explicit set(const key_compare&). The values go in through a constructor
+// instead, which is the same set in a form that library accepts. IgnoreCookieKeys
+// adds no members, so its layout is the base's and HTTPClient.cpp's find() and
+// end() see it unchanged.
+struct IgnoreCookieKeys : std::set<std::string, InsensitiveCompare>
+{
+   IgnoreCookieKeys()
+   {
+      insert("path");
+      insert("expires");
+      insert("max-age");
+      insert("domain");
+      insert("secure");
+   }
+};
+static IgnoreCookieKeys ignore_cookie_keys;
 
 class CHTTPClient
 {
@@ -122,6 +148,17 @@ public:
    /*inline*/ void SetSocketOptFnCallback(const SocketOptFnCallback& fnCallback);
    /*inline*/ void SetProxy(const std::string& strProxy);
    inline void SetTimeout(const int& iTimeout) { m_iCurlTimeout = iTimeout; }
+   /* A total deadline is the wrong tool for a download: a large file over a slow
+    * link takes as long as it takes, and cutting it off at an arbitrary moment
+    * leaves a half file. These bound the connect, and then let curl give up on
+    * the rate instead of on the clock -- it aborts when the transfer stays below
+    * lBytesPerSecond for lSeconds, which is what a socket that has gone away
+    * looks like, and never interrupts a transfer that is still moving. The
+    * defaults in the constructor are already a working policy; these are for a
+    * caller that wants its own. */
+   inline void SetConnectTimeout(const long& lSeconds) { m_lConnectTimeout = lSeconds; }
+   inline void SetLowSpeedLimit(const long& lBytesPerSecond) { m_lLowSpeedLimit = lBytesPerSecond; }
+   inline void SetLowSpeedTime(const long& lSeconds) { m_lLowSpeedTime = lSeconds; }
    inline void SetNoSignal(const bool& bNoSignal) { m_bNoSignal = bNoSignal; }
    inline void SetHTTPS(const bool& bEnableHTTPS) { m_bHTTPS = bEnableHTTPS; }
    inline void SetBufferSize(const long& lbufferSize) { m_lbufferSize = lbufferSize; }
@@ -218,7 +255,7 @@ public:
    void SetSSLKeyPassword(const std::string& strPwd) { m_strSSLKeyPwd = strPwd; }
    const std::string& GetSSLKeyPwd() const { return m_strSSLKeyPwd; }
 
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
    static void SetCurlTraceLogDirectory(const std::string& strPath);
 #endif
 
@@ -278,7 +315,7 @@ protected:
    }
 
    // Curl Debug informations
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
    static int DebugCallback(CURL* curl, curl_infotype curl_info_type, char* strace, size_t nSize, void* pFile);
    inline void StartCurlDebug() const;
    inline void EndCurlDebug() const;
@@ -307,6 +344,9 @@ protected:
 
    CURL*         m_pCurlSession;
    int           m_iCurlTimeout;
+   long          m_lConnectTimeout;
+   long          m_lLowSpeedLimit;
+   long          m_lLowSpeedTime;
 
    // Progress function
    ProgressFnCallback    m_fnProgressCallback;
@@ -321,7 +361,7 @@ protected:
    LogFnCallback         m_oLog;
 
 private:
-#ifdef DEBUG_CURL
+#if DEBUG_CURL
    static std::string s_strCurlTraceLogDirectory;
    mutable std::ofstream      m_ofFileCurlTrace;
 #endif
