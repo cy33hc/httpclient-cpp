@@ -174,13 +174,20 @@ int main() {
 
       Say("CurlHandle::instance() taken by the constructor");
 
-      /* DEBUG_CURL. On this target the library is compiled with it, because
-       * upstream's HTTPClient.h defines it; what the header cannot do is name a
-       * directory, so the trace stays inert until a caller sets one. It is set
-       * before InitSession because that is what calls StartCurlDebug, which is
-       * where the file name is worked out and the stream opened. */
+      /* DEBUG_CURL is the compile-time half of whether the library logs, and the
+       * trace directory is the run-time half: no directory, no log lines --
+       * ENABLE_LOG on its own does not turn them on. The constructor leaves it
+       * unset, so this is what a title sees before it asks for a trace. */
 #if DEBUG_CURL
+      Say(std::string("before SetCurlTraceLogDirectory: logging is ") +
+          (CHTTPClient::IsTraceLogEnabled() ? "ON (wrong)" : "off, as it should be"));
+
+      /* The trace directory, which has to be named before InitSession: that is
+       * what calls StartCurlDebug, where the file name is worked out and the
+       * stream opened. */
       CHTTPClient::SetCurlTraceLogDirectory(kTraceDirectory);
+      Say(std::string("after SetCurlTraceLogDirectory: logging is ") +
+          (CHTTPClient::IsTraceLogEnabled() ? "ON" : "off (wrong)"));
 #endif
       Say(std::string("curl trace directory set to ") + kTraceDirectory);
 

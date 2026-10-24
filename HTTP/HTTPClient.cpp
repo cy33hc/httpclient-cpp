@@ -6,7 +6,7 @@
 
 #include "HTTPClient.h"
 
-#ifdef HTTPCLIENT360_NO_IOSTREAM
+#if DEBUG_CURL
 /* The console has no stdout for std::cout to be, and libc++'s own iostream
  * object is not usable from a title either: the target defines _MSC_VER, so
  * libc++ declares the standard stream objects with an asm label in Microsoft's
@@ -20,6 +20,10 @@ extern "C" void DbgPrint(const char *fmt, ...);
 
 // Static members initialization
 std::string CHTTPClient::s_strCertificationAuthorityFile;
+
+/* Nothing has been logged yet, and until a caller names a trace directory
+ * nothing will be. See ShouldLog() in the header. */
+bool CHTTPClient::s_bTraceDirectorySet = false;
 
 #if DEBUG_CURL
 std::string CHTTPClient::s_strCurlTraceLogDirectory;
@@ -107,7 +111,7 @@ CHTTPClient::~CHTTPClient()
 {
    if (m_pCurlSession != nullptr)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_WARNING_OBJECT_NOT_CLEANED);
 
       CleanupSession();
@@ -136,7 +140,7 @@ const bool CHTTPClient::InitSession(const bool &bHTTPS /* = false */,
 {
    if (m_pCurlSession)
    {
-      if (eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_ALREADY_INIT_MSG);
 
       return false;
@@ -166,7 +170,7 @@ const bool CHTTPClient::CleanupSession()
 {
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return false;
@@ -279,7 +283,7 @@ const CURLcode CHTTPClient::Perform()
 {
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return CURLE_FAILED_INIT;
@@ -433,14 +437,14 @@ const bool CHTTPClient::GetText(const std::string &strURL,
 {
    if (strURL.empty())
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_EMPTY_HOST_MSG);
 
       return false;
    }
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return false;
@@ -461,7 +465,7 @@ const bool CHTTPClient::GetText(const std::string &strURL,
    // Check for errors
    if (res != CURLE_OK)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(StringFormat(LOG_ERROR_CURL_REQ_FAILURE_FORMAT, m_strURL.c_str(), res,
                              curl_easy_strerror(res), lHTTPStatusCode));
 
@@ -491,7 +495,7 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
 
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return false;
@@ -542,7 +546,7 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
        * kilobytes to two hundred and fifty-six changed the timings not at all,
        * which cannot be right if it reached the read path -- so this says whether
        * the setting arrived. */
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(std::string("download: chunks=") + std::to_string(sink.nChunks) +
                 " largest=" + std::to_string(sink.nLargest) +
                 " bytes, buffer size=" + std::to_string(m_lbufferSize));
@@ -565,16 +569,22 @@ const bool CHTTPClient::DownloadFile(const std::string &strLocalFile,
 
       if (res != CURLE_OK)
       {
-         if (m_eSettingsFlags & ENABLE_LOG)
+         if (ShouldLog())
             m_oLog(StringFormat(LOG_ERROR_CURL_DOWNLOAD_FAILURE_FORMAT, strLocalFile.c_str(),
                                 strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
 
          return false;
       }
    }
-   else if (m_eSettingsFlags & ENABLE_LOG)
+   else
    {
-      m_oLog(StringFormat(LOG_ERROR_DOWNLOAD_FILE_FORMAT, strLocalFile.c_str()));
+      /* A failed open is a failed operation whether or not there is anywhere to
+       * report it. It used to return true here -- the log call and the return
+       * shared an ENABLE_LOG test -- which meant a download to an unwritable path,
+       * or an upload of a file that is not there, reported success and produced
+       * nothing. */
+      if (ShouldLog())
+         m_oLog(StringFormat(LOG_ERROR_DOWNLOAD_FILE_FORMAT, strLocalFile.c_str()));
 
       return false;
    }
@@ -602,7 +612,7 @@ const bool CHTTPClient::DownloadFile(void *userData,
 
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return false;
@@ -637,7 +647,7 @@ const bool CHTTPClient::UploadFile(const std::string &strLocalFile,
 
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return false;
@@ -647,33 +657,41 @@ const bool CHTTPClient::UploadFile(const std::string &strLocalFile,
 
    UpdateURL(strURL);
 
-   std::ifstream ifsInput(strLocalFile, std::ios::binary);
+   /* OXDK360: "rb" and a FILE *, so ReadFromFileCallback can use fread. Same
+    * file, same bytes, without libc++'s stream layer on the read path. */
+   FILE *pInput = fopen(strLocalFile.c_str(), "rb");
    curl_off_t file_size = FileSize64(strLocalFile);
 
-   if (ifsInput)
+   if (pInput != nullptr)
    {
       curl_easy_setopt(m_pCurlSession, CURLOPT_UPLOAD, 1L);
       curl_easy_setopt(m_pCurlSession, CURLOPT_READFUNCTION, ReadFromFileCallback);
-      curl_easy_setopt(m_pCurlSession, CURLOPT_READDATA, &ifsInput);
+      curl_easy_setopt(m_pCurlSession, CURLOPT_READDATA, pInput);
       curl_easy_setopt(m_pCurlSession, CURLOPT_INFILESIZE_LARGE, file_size);
 
       CURLcode res = Perform();
 
-      ifsInput.close();
+      fclose(pInput);
       curl_easy_getinfo(m_pCurlSession, CURLINFO_RESPONSE_CODE, &lHTTPStatusCode);
 
       if (res != CURLE_OK)
       {
-         if (m_eSettingsFlags & ENABLE_LOG)
+         if (ShouldLog())
             m_oLog(StringFormat(LOG_ERROR_CURL_DOWNLOAD_FAILURE_FORMAT, strLocalFile.c_str(),
                                 strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
 
          return false;
       }
    }
-   else if (m_eSettingsFlags & ENABLE_LOG)
+   else
    {
-      m_oLog(StringFormat(LOG_ERROR_DOWNLOAD_FILE_FORMAT, strLocalFile.c_str()));
+      /* A failed open is a failed operation whether or not there is anywhere to
+       * report it. It used to return true here -- the log call and the return
+       * shared an ENABLE_LOG test -- which meant a download to an unwritable path,
+       * or an upload of a file that is not there, reported success and produced
+       * nothing. */
+      if (ShouldLog())
+         m_oLog(StringFormat(LOG_ERROR_DOWNLOAD_FILE_FORMAT, strLocalFile.c_str()));
 
       return false;
    }
@@ -699,7 +717,7 @@ const bool CHTTPClient::DownloadFile(std::vector<unsigned char> &data, const std
 
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return false;
@@ -722,7 +740,7 @@ const bool CHTTPClient::DownloadFile(std::vector<unsigned char> &data, const std
 
    if (res != CURLE_OK)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(StringFormat(LOG_ERROR_CURL_DOWNLOAD_FAILURE_FORMAT, "Download to a byte buffer",
                              strURL.c_str(), res, curl_easy_strerror(res), lHTTPStatusCode));
 
@@ -839,14 +857,14 @@ inline const bool CHTTPClient::InitRestRequest(const std::string &strUrl,
 {
    if (strUrl.empty())
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_EMPTY_HOST_MSG);
 
       return false;
    }
    if (!m_pCurlSession)
    {
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(LOG_ERROR_CURL_NOT_INIT_MSG);
 
       return false;
@@ -896,7 +914,7 @@ inline const bool CHTTPClient::PostRestRequest(const CURLcode ePerformCode,
       Response.iCode = -1;
       Response.errMessage = curl_easy_strerror(ePerformCode);
 
-      if (m_eSettingsFlags & ENABLE_LOG)
+      if (ShouldLog())
          m_oLog(StringFormat(LOG_ERROR_CURL_REST_FAILURE_FORMAT, m_strURL.c_str(), ePerformCode,
                              Response.errMessage.c_str()));
 
@@ -1323,13 +1341,22 @@ size_t CHTTPClient::WriteToMemoryCallback(void *buff, size_t size, size_t nmemb,
  */
 size_t CHTTPClient::ReadFromFileCallback(void *ptr, size_t size, size_t nmemb, void *stream)
 {
-   std::ifstream *pFileStream = reinterpret_cast<std::ifstream *>(stream);
-   if (pFileStream->is_open())
+   /* OXDK360: a FILE * and fread, not std::ifstream.
+    *
+    * The stream was the whole cost of an upload on the console. curl asks this
+    * callback for a block at a time, and each call went through libc++'s
+    * filebuf -- its sentry, its buffer copy, its locale machinery -- for a 16 KB
+    * read that fread does directly. A 20 MB PUT ran at 1.2 MB/s while a separate
+    * pass reading the same file with fread took 361 ms (~55 MB/s), so the wire
+    * and the disk were never the limit. The bytes are identical either way; this
+    * is the same file, read without the stream layer in between. */
+   FILE *pFile = reinterpret_cast<FILE *>(stream);
+
+   if (pFile == nullptr)
    {
-      pFileStream->read(reinterpret_cast<char *>(ptr), size * nmemb);
-      return pFileStream->gcount();
+      return 0;
    }
-   return 0;
+   return fread(ptr, 1, size * nmemb, pFile);
 }
 
 // REST CALLBACKS
@@ -1681,8 +1708,17 @@ void CHTTPClient::SetCurlTraceLogDirectory(const std::string &strPath)
 {
    s_strCurlTraceLogDirectory = strPath;
 
+   /* OXDK360: _WIN32 as well as WINDOWS. WINDOWS is this library's own name for a
+    * desktop Windows build and the Xbox 360 does not define it, so the console
+    * took the POSIX branch below and appended '/' to a path like "game:\",
+    * producing "game:\/" -- which the trace file's open then failed on, leaving
+    * CURLOPT_DEBUGDATA unset and dropping the raw TLS bytes with it. _WIN32 is
+    * defined for desktop Windows and for the console both, and both CRTs take
+    * backslashes, so both want this branch. The AnsiToUtf8 and Utf8ToUtf16 blocks
+    * below stay on WINDOWS alone: they call MultiByteToWideChar and use CP_ACP,
+    * which the XDK does not have. */
    if (!s_strCurlTraceLogDirectory.empty()
-#ifdef WINDOWS
+#if defined(WINDOWS) || defined(_WIN32)
        && s_strCurlTraceLogDirectory.at(s_strCurlTraceLogDirectory.length() - 1) != '\\')
    {
       s_strCurlTraceLogDirectory += '\\';
@@ -1693,6 +1729,11 @@ void CHTTPClient::SetCurlTraceLogDirectory(const std::string &strPath)
       s_strCurlTraceLogDirectory += '/';
    }
 #endif
+
+   /* The run-time half of ShouldLog(). A directory with something in it is what
+    * turns the library's logging on; SetCurlTraceLogDirectory("") turns it off
+    * again, which is the only way back to silence once it has been set. */
+   s_bTraceDirectorySet = !strPath.empty();
 }
 
 int CHTTPClient::DebugCallback(CURL *curl, curl_infotype curl_info_type, char *pszTrace, size_t usSize, void *pFile)
@@ -1713,11 +1754,6 @@ int CHTTPClient::DebugCallback(CURL *curl, curl_infotype curl_info_type, char *p
 
    std::string strText;
    std::string strTrace(pszTrace, usSize);
-#ifdef HTTPCLIENT360_NO_IOSTREAM
-   /* Longest line this callback will put on the debug channel. A header line is
-    * short; anything longer is payload and is reported by size instead. */
-   const size_t nMaxDebugLine = 512;
-#endif
 
    switch (curl_info_type)
    {
@@ -1746,34 +1782,13 @@ int CHTTPClient::DebugCallback(CURL *curl, curl_infotype curl_info_type, char *p
       break;
    }
 
+   /* OXDK360: the trace goes to the file when a directory was named, and nowhere
+    * otherwise. This used to DbgPrint every event, which is noise on any session
+    * without a trace directory -- and the console's debug buffer is fixed-size,
+    * so a payload chunk reported through it is not a line at all. */
    std::ofstream *pofTraceFile = reinterpret_cast<std::ofstream *>(pFile);
-   if (pofTraceFile == nullptr)
-   {
-#ifdef HTTPCLIENT360_NO_IOSTREAM
-      /* One line per event, on the channel the rest of a console title reports
-       * through -- but never the payload itself.
-       *
-       * The console's DbgPrint formats into a fixed-size buffer, and a body
-       * chunk is not a line. curl hands this callback whatever has arrived, so
-       * with CURLOPT_BUFFERSIZE at a megabyte a 22 KB directory listing comes
-       * through here as one %s. That overran the buffer and took the title down
-       * at the first byte of the first response that had a body -- a HEAD, which
-       * is what the connection test does, has none, which is why it looked like
-       * transfers worked until the first real GET. The debug lines those events
-       * produced came out empty rather than truncated.
-       *
-       * So the data kinds are reported by size, and the line kinds -- where the
-       * useful diagnostics are -- are capped. Nothing is lost: a caller that
-       * wants the bytes names a trace directory, and the branch below writes the
-       * whole of them to that file. */
-      DbgPrint("[DEBUG] cURL debug log [%d]: %s", static_cast<int>(curl_info_type),
-               strTrace.substr(0, nMaxDebugLine).c_str());
-#else
-      std::cout << "[DEBUG] cURL debug log [" << curl_info_type << "]: "
-                << " - " << strTrace;
-#endif
-   }
-   else
+
+   if (pofTraceFile != nullptr)
    {
       (*pofTraceFile) << strText << strTrace;
    }

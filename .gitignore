@@ -21,6 +21,7 @@ HTTP_VS14.VC.db
 TestHTTP/LastCoverageResults.log
 TestHTTP/TestHTTP.vcxproj.user
 TestHTTP/TestHTTP_VS14.vcxproj.user
+HTTP/.HTTPClient.h.swp
 *build*
 .vscode
 libhttpclient.a

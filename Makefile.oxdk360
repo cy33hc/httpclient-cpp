@@ -118,7 +118,7 @@ HTTPCLIENT_WARN_OFF := -Wno-varargs -Wno-ignored-attributes -Wno-pragma-pack \
                        -Wno-microsoft-anon-tag -Wno-ignored-qualifiers \
                        -Wno-deprecated-declarations -Wno-ignored-pragma-intrinsic
 
-# The port's two defines, and no exception flags.
+# Two defines, and no exception flags.
 #
 # -DHTTPCLIENT360_NO_EXCEPTIONS is the first change to the source. OXDK builds a
 # title with -fno-exceptions, because clang emits an EH personality the XDK CRT
@@ -129,28 +129,24 @@ HTTPCLIENT_WARN_OFF := -Wno-varargs -Wno-ignored-attributes -Wno-pragma-pack \
 # also what keeps std::runtime_error's type information and the __cxa_* entries
 # out of the archive.
 #
-# -DHTTPCLIENT360_NO_IOSTREAM is the second, and it is about DEBUG_CURL. Upstream
-# defines DEBUG_CURL in its own header, so the trace machinery is always in this
-# archive; its fallback path, for a debug event that arrives with no trace file
-# open, writes to std::cout. There is no stdout on a console, and libc++'s own
-# iostream object cannot stand in for one here: the target defines _MSC_VER, so
-# libc++ declares the standard stream objects with an asm label in Microsoft's
-# mangling while clang goes on mangling every reference the Itanium way. The
-# declaration and the definition in libc++'s compiled half never meet, and the
-# link stops on std::cout. With this define that path reports through DbgPrint,
-# which is where a console title's output goes anyway. The trace file path --
-# the part of DEBUG_CURL that is actually usable here -- is untouched.
+# -DDEBUG_CURL is the one switch for everything the library says about itself: the
+# curl trace, its DebugCallback, and the log lines ENABLE_LOG asks for. It is
+# upstream's own name and HTTPClient.h defines it if nothing else has, so this is
+# where the build decides. `make -f Makefile.oxdk360 DEBUG_CURL=0` compiles all of
+# it out; the guards in the source are `#if`, not `#ifdef`, which is what makes =0
+# mean off rather than merely defined.
 #
-# DEBUG_CURL: HTTPClient.h defines it, and defines it only if nothing else has,
-# so setting it here decides the build. A project turns the trace machinery off
-# with `make -f Makefile.oxdk360 DEBUG_CURL=0`; the default is upstream's 1. The
-# guards in the source are `#if`, not `#ifdef`, which is what makes =0 mean off
-# rather than merely defined.
+# The debug channel also absorbs what std::cout would have been: there is no
+# stdout on a console, and libc++'s own iostream object cannot stand in for one
+# here -- the target defines _MSC_VER, so libc++ declares the stream objects with
+# an asm label in Microsoft's mangling while clang goes on mangling references
+# the Itanium way. That used to be a second define; with the fallback gone, the
+# DEBUG_CURL block is the whole story.
 DEBUG_CURL ?= 1
 
 HTTPCLIENT_BASE_CXXFLAGS := $(OXDK360_CXXFLAGS) $(HTTPCLIENT_WARN_OFF) \
                             -std=c++20 -O2 -DHTTPCLIENT360_NO_EXCEPTIONS \
-                            -DHTTPCLIENT360_NO_IOSTREAM -DDEBUG_CURL=$(DEBUG_CURL)
+                            -DDEBUG_CURL=$(DEBUG_CURL)
 
 # ---------------------------------------------------------------------------
 # Include order

@@ -53,9 +53,10 @@ make -f Makefile.oxdk360 clean
 ```
 
 Two variables change what is built. `DEBUG_CURL` is 1, as upstream has it; set it
-to 0 to leave the curl trace machinery out (see [the curl
-trace](#the-curl-trace-and-what-stdcout-costs-here)). `BUILD` moves the output
-directory. Neither is a prerequisite of the objects, so a change to one needs
+to 0 and the trace machinery *and* every log line are compiled out (see [one switch
+for everything the library
+says](#one-switch-for-everything-the-library-says-debug_curl)). `BUILD` moves the
+output directory. Neither is a prerequisite of the objects, so a change to one needs
 `make -f Makefile.oxdk360 clean` first.
 
 ## Install and use it in a title
@@ -220,26 +221,52 @@ function that could throw, which pulls `_Unwind_Resume` and a
 unwinder that is a runtime nobody can use, bought for an error path that already
 ends the process.
 
-### The curl trace, and what `std::cout` costs here
+### One switch for everything the library says: `DEBUG_CURL`
 
-`DEBUG_CURL` is on by default, as upstream has it, and needs no flag: `HTTPClient.h`
-defines it. With it on, the library carries `CHTTPClient::DebugCallback`, the two
-`Start`/`EndCurlDebug` helpers and `SetCurlTraceLogDirectory`, and it installs curl's
-`CURLOPT_VERBOSE` and `CURLOPT_DEBUGFUNCTION` on every session. That is the useful
-half, and it is exactly the half upstream's header cannot switch off.
+`DEBUG_CURL` is the only port define that gates logging. It is on by default, as
+upstream has it, and it covers:
 
-What makes it produce a file is the caller:
+* the curl trace -- `DebugCallback`, `StartCurlDebug`, `EndCurlDebug` and
+  `SetCurlTraceLogDirectory`, plus the `CURLOPT_VERBOSE`/`CURLOPT_DEBUGFUNCTION`
+  curl is given on every session;
+* **every log line** the library would write through `ENABLE_LOG`. Those call
+  sites test `ShouldLog()`, which is `#if DEBUG_CURL` inside, so `DEBUG_CURL=0`
+  compiles the logging out too rather than leaving twenty-odd flag tests behind.
+
+`ENABLE_LOG` itself stays a run-time flag, because a caller decides per session
+whether it wants output. The two are tied like this:
 
 ```cpp
-CHTTPClient::SetCurlTraceLogDirectory("Hdd1:\\mytitle");   // before InitSession
+return (m_eSettingsFlags & ENABLE_LOG) && s_bTraceDirectorySet;
+```
+
+So there are two conditions, and both have to hold:
+
+| | `ENABLE_LOG` set | folder set | a log line is written |
+|---|---|---|---|
+| `DEBUG_CURL=1` | yes | yes | **yes** |
+| `DEBUG_CURL=1` | no | any | no |
+| `DEBUG_CURL=1` | yes | **no** | **no** |
+| `DEBUG_CURL=0` | any | any | no -- not compiled in |
+
+**No folder, no logs.** A title that passes `ENABLE_LOG` but never calls
+`SetCurlTraceLogDirectory()` gets silence: there is nowhere for the library to
+report to, so it does not report. `IsTraceLogEnabled()` says which state it is in,
+and `SetCurlTraceLogDirectory("")` turns it back off.
+
+What makes the trace produce a *file* is the same call, and it has to come before
+`InitSession`:
+
+```cpp
+CHTTPClient::SetCurlTraceLogDirectory("game:\\");   // before InitSession
 ```
 
 `InitSession` is what calls `StartCurlDebug`, which is where the file name is built
 -- `<directory>/TraceLog_<strftime "%Y%m%d_%H">.txt`, a new file each hour -- and the
 stream opened. Set the directory after `InitSession` and the session that is already
 open has no trace file; `SetCurlTraceLogDirectory` is static, so it applies to every
-client made afterwards. `oxdk360/test/main.cpp` does this and then reads the file
-back, which is the only way the trace is checked here.
+client made afterwards. `oxdk360/test/main.cpp` sets it, checks `IsTraceLogEnabled()`
+before and after, and reads the file back.
 
 Build it off with:
 
@@ -252,17 +279,22 @@ make -f Makefile.oxdk360 DEBUG_CURL=0
 `#ifdef`, `-DDEBUG_CURL=0` still counts as defined and there is no way to turn the
 feature off short of editing the source.
 
-One thing had to change for it to link at all. Upstream's `DebugCallback`, for a
-debug event that arrives when no trace file is open, writes to `std::cout`. There is
-no stdout on a console, and libc++'s own `iostream` object cannot stand in for one
-on this target: the build defines `_MSC_VER`, so libc++'s headers declare the
-standard stream objects with an asm label in Microsoft's mangling
-(`?cout@__1@std@@…`) while clang goes on mangling every reference the Itanium way
-(`_ZNSt3__14coutE`). The declaration and the definition in libc++'s compiled half
-never meet, and the link stops on `std::cout` -- with nothing in the message to say
-the two manglings are the same object. With `-DHTTPCLIENT360_NO_IOSTREAM` that path
-reports through `DbgPrint` instead, which is where a console title's output goes
-anyway. The trace file path is untouched, and the `#else` branch is upstream's.
+`SetCurlTraceLogDirectory` and `IsTraceLogEnabled` stay declared when
+`DEBUG_CURL=0` -- as inline no-ops returning false -- so a title written against
+one build still compiles against the other instead of needing its own `#if`.
+
+One thing had to change for it to link at all, and it is why there is no longer a
+second define. Upstream's `DebugCallback`, for a debug event that arrives when no
+trace file is open, writes to `std::cout`. There is no stdout on a console, and
+libc++'s own `iostream` object cannot stand in for one on this target: the build
+defines `_MSC_VER`, so libc++'s headers declare the standard stream objects with an
+asm label in Microsoft's mangling (`?cout@__1@std@@…`) while clang goes on mangling
+every reference the Itanium way (`_ZNSt3__14coutE`). The declaration and the
+definition in libc++'s compiled half never meet, and the link stops on `std::cout`
+-- with nothing in the message to say the two manglings are the same object. That
+fallback now reports through `DbgPrint`, which is where a console title's output
+goes anyway, and since it sits inside `#if DEBUG_CURL` there is no separate
+`NO_IOSTREAM` define to carry. The trace file path is untouched.
 
 ### The one line the source cannot provide
 

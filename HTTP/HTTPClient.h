@@ -257,6 +257,20 @@ public:
 
 #if DEBUG_CURL
    static void SetCurlTraceLogDirectory(const std::string& strPath);
+
+   /* True once a directory has been named, and the run-time half of whether the
+    * library logs at all -- see ShouldLog(). Exposed because a caller that has
+    * just called SetCurlTraceLogDirectory() has a right to ask what took. */
+   inline static bool IsTraceLogEnabled() { return s_bTraceDirectorySet; }
+#else
+   /* DEBUG_CURL is off, so there is no logging to enable and nothing to name a
+    * directory for. These stay so that a title written against the trace build
+    * compiles against this one: the call is accepted and does nothing, which is
+    * what a title asking a library without logging can reasonably expect. An
+    * inline no-op rather than a missing declaration keeps the title's own
+    * #if from being mandatory. */
+   inline static void SetCurlTraceLogDirectory(const std::string&) {}
+   inline static bool IsTraceLogEnabled() { return false; }
 #endif
 
 #ifdef WINDOWS
@@ -360,11 +374,38 @@ protected:
    // Log printer callback
    LogFnCallback         m_oLog;
 
+   /* Whether a caller has named a trace directory. This is what makes logging
+    * conditional at run time: until SetCurlTraceLogDirectory() has been given a
+    * directory there is nowhere for the library to report to, so it stays quiet
+    * whatever ENABLE_LOG says. The constructor leaves it false, which is the
+    * safe default -- a title that never asks for logging gets none.
+    *
+    * Declared on every build, not inside #if DEBUG_CURL, because ENABLE_LOG is a
+    * public flag in every build; ShouldLog() below decides what it means. */
+   static bool s_bTraceDirectorySet;
+
 private:
 #if DEBUG_CURL
    static std::string s_strCurlTraceLogDirectory;
    mutable std::ofstream      m_ofFileCurlTrace;
 #endif
+
+   /* The one place that decides whether a log line is written.
+    *
+    * DEBUG_CURL is the compile-time half and ENABLE_LOG the run-time half, and
+    * the trace directory is what joins them: with DEBUG_CURL off there is no
+    * logging at all and the calls below compile to nothing; with it on, a line
+    * goes out only when the session enabled logging and a directory was named.
+    * Keeping the test in one inline function rather than in the twenty-odd call
+    * sites is what lets the compile-time half disappear without each site
+    * needing its own #if. */
+   inline bool ShouldLog() const {
+#if DEBUG_CURL
+      return (m_eSettingsFlags & ENABLE_LOG) && s_bTraceDirectorySet;
+#else
+      return false;
+#endif
+   }
 
    CurlHandle& m_curlHandle;
 };
